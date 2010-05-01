@@ -1072,6 +1072,9 @@ static int __init omap3_pm_init(void)
 	core_clkdm = clkdm_lookup("core_clkdm");
 
 	omap_push_sram_idle();
+
+	omap3_coresight_pm_init(_omap_sram_idle);
+
 #ifdef CONFIG_SUSPEND
 	suspend_set_ops(&omap_pm_ops);
 #endif /* CONFIG_SUSPEND */
