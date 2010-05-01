@@ -28,6 +28,7 @@
 #include <asm/assembler.h>
 #include <mach/io.h>
 #include <plat/control.h>
+#include <asm/hardware/coresight.h>
 
 #include "cm.h"
 #include "prm.h"
@@ -226,6 +227,18 @@ loop:
 	nop
 	bl wait_sdrc_ok
 
+#ifdef CONFIG_ENABLE_OFF_MODE_JTAG_ETM_DEBUG
+	/*
+	 * Restore Coresight debug registers
+	 */
+	ldr	r6, debug_vbase		/* base Vaddr of CortexA8-Debug */
+	ldr	r4, debug_xlar_key	/* get lock key for OSLAR */
+	bl	unlock_debug		/* remove global lock if set */
+	ldr	r6, etm_vbase		/* base Vaddr of ETM */
+	bl	unlock_debug		/* remove global lock if set */
+	str	r6, [r6, #ETMMR_OSLAR]	/* clear OSLAR lock using non-key */
+#endif
+
 	ldmfd	sp!, {r0-r12, pc}		@ restore regs and return
 restore_es3:
 	/*b restore_es3*/		@ Enable to debug restore code
@@ -385,6 +398,44 @@ logic_l1_restore:
 	/*normal memory remap register */
 	MCR p15, 0, r5, c10, c2, 1
 
+#ifdef CONFIG_ENABLE_OFF_MODE_JTAG_ETM_DEBUG
+	/*
+	 * Restore Coresight debug registers
+	 */
+	ldr	r6, debug_pbase		/* base paddr of CortexA8-Debug */
+	ldr	r4, debug_xlar_key	/* get lock key for OSLAR */
+	bl	unlock_debug		/* remove global lock if set */
+	str	r4, [r6, #ETMMR_OSLAR]	/* reset-pointer (already locked) */
+	ldr	r4, [r6, #ETMMR_OSSRR]	/* dummy read */
+	ldr	r4, [r3], #4		/* load save size */
+	cmp	r4, #0			/* check for zero */
+debug_restore:
+	ittt	ne			/* t2/compat if-then block */
+	ldrne	r5, [r3], #4		/* get saved value */
+	strne	r5, [r6,#ETMMR_OSSRR]	/* restore saved value */
+	subnes	r4, r4, #1		/* decrement loop */
+	bne	debug_restore		/* loop till done */
+	str	r5, [r6, #ETMMR_OSSRR]	/* clear lock */
+	/*
+	 * Restore CoreSight ETM registers
+	 */
+	ldr	r6, etm_pbase		/* base paddr of ETM */
+	ldr	r4, debug_xlar_key	/* get lock key for OSLAR */
+	bl	unlock_debug		/* remove global lock if set */
+	str	r4, [r6, #ETMMR_OSLAR]	/* reset-pointer (already locked) */
+	ldr	r4, [r6, #ETMMR_OSSRR]	/* dummy read */
+	ldr	r4, [r3], #4		/* load save size */
+	cmp	r4, #0			/* check for zero */
+	beq	etm_skip
+etm_restore:
+	ldrne	r5, [r3], #4		/* get saved value */
+	strne	r5, [r6, #ETMMR_OSSRR]	/* restore saved value */
+	subnes	r4, r4, #1		/* decrement loop */
+	bne	etm_restore		/* loop till done */
+etm_skip:
+	str	r6, [r6, #ETMMR_OSLAR]	/* remove OS lock */
+#endif
+
 	/* Restore cpsr */
 	ldmia	r3!,{r4}	/*load CPSR from SDRAM*/
 	msr	cpsr, r4	/*store cpsr */
@@ -506,6 +557,48 @@ l1_logic_lost:
 	mrc	p15, 0, r5, c10, c2, 1
 	stmia	r8!,{r4-r5}
 
+#ifdef CONFIG_ENABLE_OFF_MODE_JTAG_ETM_DEBUG
+	/*
+	 * Save Coresight debug registers
+	 */
+	ldr	r4, do_etm_save
+	cmp	r4, #0
+	streq	r4, [r8], #4		/* 0 for coresight saved size */
+	streq	r4, [r8], #4		/* 0 for ETM saved size */
+	beq	etm_skip_save
+	ldr	r6, debug_vbase		/* base vaddr of CortexA8-Debug */
+	ldr	r4, debug_xlar_key	/* get lock key for OSLAR */
+	bl	unlock_debug		/* force global unlock */
+	str	r4, [r6, #ETMMR_OSLAR]	/* lock debug access */
+	ldr	r4, [r6, #ETMMR_OSSRR]	/* OSSRR returns size on first read */
+	str	r4, [r8], #4		/* push item to save area */
+	cmp	r4, #0			/* zero check */
+debug_save:
+	ittt	ne			/* thumb 2 compat if-then block */
+	ldrne	r5, [r6, #ETMMR_OSSRR]	/* get reg value */
+	strne	r5, [r8], #4		/* push item to save area */
+	subnes	r4, r4, #1		/* decrement size */
+	bne	debug_save		/* loop till done */
+	str	r6, [r6, #ETMMR_OSLAR]	/* unlock debug access */
+	/*
+	 * Save etm registers
+	 */
+	ldr	r6, etm_vbase		/* base vaddr of ETM */
+	ldr	r4, debug_xlar_key	/* get lock key for OSLAR */
+	bl	unlock_debug		/* force global unlock */
+	str	r4, [r6, #ETMMR_OSLAR]	/* lock OS access to trace regs */
+	ldr	r4, [r6, #ETMMR_OSSRR]	/* OSSRR returns size on first read */
+	str	r4, [r8], #4		/* push size to save area */
+	cmp	r4, #0			/* zero check */
+etm_save:
+	ldrne	r5, [r6, #ETMMR_OSSRR]	/* get reg value */
+	strne	r5, [r8], #4		/* push item to save area */
+	subnes	r4, r4, #1		/* decrement size */
+	bne	etm_save		/* loop till done */
+	str	r6, [r6, #ETMMR_OSLAR]	/* unlock debug access */
+etm_skip_save:
+#endif
+
 	/* Store current cpsr*/
 	mrs	r2, cpsr
 	stmia	r8!, {r2}
@@ -520,6 +613,7 @@ clean_caches:
 	cmp	r9, #1 /* Check whether L2 inval is required or not*/
 	bne	skip_l2_inval
 clean_l2:
+#ifndef CONFIG_ENABLE_OFF_MODE_JTAG_ETM_DEBUG
 	/* read clidr */
 	mrc     p15, 1, r0, c0, c0, 1
 	/* extract loc from clidr */
@@ -586,6 +680,12 @@ finished:
 	/* select current cache level in cssr */
 	mcr     p15, 2, r10, c0, c0, 0
 	isb
+#else
+	ldr	r1, kernel_flush	/* get 32 bit addr of flush */
+	mov	lr, pc			/* prepare for return */
+	bx	r1			/* do it */
+#endif
+
 skip_l2_inval:
 	/* Data memory barrier and Data sync barrier */
 	mov     r1, #0
@@ -632,6 +732,36 @@ wait_dll_lock:
         bne     wait_dll_lock
         bx      lr
 
+#ifdef CONFIG_ENABLE_OFF_MODE_JTAG_ETM_DEBUG
+	/*
+	 * unlock debug:
+	 *  Input:
+	 *      r6 has base address of emulation
+	 *      r4 has unlock key
+	 *  Output
+	 *      r5 has PDS value (1=accessable)
+	 */
+unlock_debug:
+	ldr	r5, [r6, #CSMR_LOCKSTATUS]	/* get LSR */
+	cmp	r5, #0x3			/* need unlocking? */
+	streq	r4, [r6, #CSMR_LOCKACCESS]	/* unlock if so */
+	ldr	r5, [r6, #ETMMR_PDSR]		/* clear power status */
+	bx	lr				/* back to caller */
+
+debug_vbase:
+	.word OMAP34XX_DBG_VIRT
+debug_pbase:
+	.word OMAP34XX_DBG_PHYS
+etm_vbase:
+	.word OMAP34XX_ETM_VIRT
+etm_pbase:
+	.word OMAP34XX_ETM_PHYS
+debug_xlar_key:
+	.word UNLOCK_MAGIC
+#endif
+
+kernel_flush:
+	.word v7_flush_dcache_all
 cm_idlest1_core:
 	.word	CM_IDLEST1_CORE_V
 sdrc_dlla_status:
@@ -668,5 +798,10 @@ cache_pred_disable_mask:
 	.word	0xFFFFE7FB
 control_stat:
 	.word	CONTROL_STAT
+/* this word needs to be at the end */
+#ifdef CONFIG_ENABLE_OFF_MODE_JTAG_ETM_DEBUG
+do_etm_save:
+	.word   0
+#endif
 ENTRY(omap34xx_cpu_suspend_sz)
 	.word	. - omap34xx_cpu_suspend

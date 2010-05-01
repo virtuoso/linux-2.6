@@ -93,7 +93,7 @@ void *omap3_secure_ram_storage;
  * The address is stored in scratchpad, so that it can be used
  * during the restore path.
  */
-u32 omap3_arm_context[128];
+u32 omap3_arm_context[256];
 
 struct omap3_control_regs {
 	u32 sysconfig;

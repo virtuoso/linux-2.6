@@ -243,6 +243,15 @@ config MACH_OMAP4_PANDA
 	default y
 	depends on ARCH_OMAP4
 
+config ENABLE_OFF_MODE_JTAG_ETM_DEBUG
+	bool "Enable hardware emulation context save and restore"
+	depends on ARCH_OMAP3
+	default y
+	help
+	  This option enables JTAG & ETM debugging across power states.
+	  With out this option emulation features are reset across OFF
+	  mode state changes.
+
 config OMAP3_EMU
 	bool "OMAP3 debugging peripherals"
 	depends on ARCH_OMAP3
