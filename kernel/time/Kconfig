@@ -27,3 +27,10 @@ config GENERIC_CLOCKEVENTS_BUILD
 	default y
 	depends on GENERIC_CLOCKEVENTS || GENERIC_CLOCKEVENTS_MIGR
 
+config TIME_NOTIFY
+	bool "System time changes notification for userspace"
+	depends on EVENTFD
+	help
+	  Enable time change notification events to userspace via
+	  eventfd.
+
