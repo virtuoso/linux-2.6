@@ -1441,6 +1441,17 @@ static struct ctl_table fs_table[] = {
 		.proc_handler	= proc_doulongvec_minmax,
 	},
 #endif /* CONFIG_AIO */
+#ifdef CONFIG_TIME_NOTIFY
+	{
+		.procname	= "time-change-notify-max-users",
+		.data		= &time_change_notify_max_users,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &ten_thousand,
+	},
+#endif
 #ifdef CONFIG_INOTIFY_USER
 	{
 		.procname	= "inotify",

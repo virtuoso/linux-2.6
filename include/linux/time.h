@@ -252,6 +252,26 @@ static __always_inline void timespec_add_ns(struct timespec *a, u64 ns)
 	a->tv_sec += __iter_div_u64_rem(a->tv_nsec + ns, NSEC_PER_SEC, &ns);
 	a->tv_nsec = ns;
 }
+
+/* time change events */
+#define TIME_EVENT_SET 0
+#define TIME_EVENT_ADJ 1
+
+#define TIME_CHANGE_NOTIFY_OTHERS	BIT(0)
+#define TIME_CHANGE_NOTIFY_OWN		BIT(1)
+#define TIME_CHANGE_NOTIFY_SET		BIT(2)
+#define TIME_CHANGE_NOTIFY_ADJUST	BIT(3)
+
+#define TIME_CHANGE_NOTIFY_MAX_USERS	1024
+
+#ifdef CONFIG_TIME_NOTIFY
+extern unsigned int time_change_notify_max_users;
+
+void time_notify_all(int type);
+#else
+static inline void time_notify_all(int type) {}
+#endif
+
 #endif /* __KERNEL__ */
 
 #define NFDBITS			__NFDBITS
