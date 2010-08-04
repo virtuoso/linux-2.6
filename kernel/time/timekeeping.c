@@ -335,6 +335,9 @@ int do_settimeofday(struct timespec *tv)
 	/* signal hrtimers about time change */
 	clock_was_set();
 
+	/* signal time_change_notify() listeners */
+	time_notify_all(CLOCK_REALTIME, TIME_EVENT_SET);
+
 	return 0;
 }
 

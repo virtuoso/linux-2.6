@@ -186,3 +186,6 @@ cond_syscall(sys_perf_event_open);
 /* fanotify! */
 cond_syscall(sys_fanotify_init);
 cond_syscall(sys_fanotify_mark);
+
+/* time change notification */
+cond_syscall(sys_time_change_notify);
