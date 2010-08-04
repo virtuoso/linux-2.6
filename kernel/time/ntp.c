@@ -541,6 +541,9 @@ int do_adjtimex(struct timex *txc)
 
 	notify_cmos_timer();
 
+	if (txc->modes)
+		time_notify_all(CLOCK_REALTIME, TIME_EVENT_ADJ);
+
 	return result;
 }
 

@@ -252,6 +252,19 @@ static __always_inline void timespec_add_ns(struct timespec *a, u64 ns)
 	a->tv_sec += __iter_div_u64_rem(a->tv_nsec + ns, NSEC_PER_SEC, &ns);
 	a->tv_nsec = ns;
 }
+
+/* time change events types */
+enum {
+	TIME_EVENT_SET = 0,
+	TIME_EVENT_ADJ,
+};
+
+#ifdef CONFIG_TIME_NOTIFY
+void time_notify_all(clockid_t clockid, int type);
+#else
+static inline void time_notify_all(clockid_t clockid, int type) {}
+#endif
+
 #endif /* __KERNEL__ */
 
 #define NFDBITS			__NFDBITS
