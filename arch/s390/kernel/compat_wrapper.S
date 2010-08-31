@@ -1877,3 +1877,10 @@ sys_prlimit64_wrapper:
 	llgtr	%r4,%r4			# const struct rlimit64 __user *
 	llgtr	%r5,%r5			# struct rlimit64 __user *
 	jg	sys_prlimit64		# branch to system call
+
+	.globl sys_time_change_notify_wrapper
+sys_time_change_notify_wrapper:
+	lgfr	%r2,%r2			# clockid_t (int)
+	lgfr	%r3,%r3			# int
+	llgfr	%r4,%r4			# unsigned int
+	jg	sys_time_change_notify	# branch to system call
