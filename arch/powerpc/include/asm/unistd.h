@@ -348,10 +348,11 @@
 #define __NR_fanotify_init	323
 #define __NR_fanotify_mark	324
 #define __NR_prlimit64		325
+#define __NR_time_change_notify	326
 
 #ifdef __KERNEL__
 
-#define __NR_syscalls		326
+#define __NR_syscalls		327
 
 #define __NR__exit __NR_exit
 #define NR_syscalls	__NR_syscalls
