@@ -669,6 +669,8 @@ __SYSCALL(__NR_fanotify_init, sys_fanotify_init)
 __SYSCALL(__NR_fanotify_mark, sys_fanotify_mark)
 #define __NR_prlimit64				302
 __SYSCALL(__NR_prlimit64, sys_prlimit64)
+#define __NR_time_change_notify			303
+__SYSCALL(__NR_time_change_notify, sys_time_change_notify)
 
 #ifndef __NO_STUBS
 #define __ARCH_WANT_OLD_READDIR
