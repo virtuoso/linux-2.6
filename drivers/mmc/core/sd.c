@@ -82,6 +82,8 @@ static void mmc_decode_cid(struct mmc_card *card)
 	card->cid.month			= UNSTUFF_BITS(resp, 8, 4);
 
 	card->cid.year += 2000; /* SD cards year offset */
+
+	printk("$$$$$$$$$$$$$ sd %x $$$$$$$$$$$$$$$$\n", card->cid.serial);
 }
 
 /*
@@ -360,7 +362,10 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 
 	err = mmc_send_app_op_cond(host, ocr, NULL);
 	if (err)
+	{
+		printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 		goto err;
+	}
 
 	/*
 	 * For SPI, enable CRC as appropriate.
@@ -368,7 +373,10 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	if (mmc_host_is_spi(host)) {
 		err = mmc_spi_set_crc(host, use_spi_crc);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto err;
+		}
 	}
 
 	/*
@@ -379,11 +387,15 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	else
 		err = mmc_all_send_cid(host, cid);
 	if (err)
+	{
+		printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 		goto err;
+	}
 
 	if (oldcard) {
 		if (memcmp(cid, oldcard->raw_cid, sizeof(cid)) != 0) {
 			err = -ENOENT;
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto err;
 		}
 
@@ -395,6 +407,7 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		card = mmc_alloc_card(host, &sd_type);
 		if (IS_ERR(card)) {
 			err = PTR_ERR(card);
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto err;
 		}
 
@@ -408,7 +421,10 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	if (!mmc_host_is_spi(host)) {
 		err = mmc_send_relative_addr(host, &card->rca);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto free_card;
+		}
 
 		mmc_set_bus_mode(host, MMC_BUSMODE_PUSHPULL);
 	}
@@ -419,11 +435,17 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		 */
 		err = mmc_send_csd(card, card->raw_csd);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto free_card;
+		}
 
 		err = mmc_decode_csd(card);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto free_card;
+		}
 
 		mmc_decode_cid(card);
 	}
@@ -434,7 +456,10 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	if (!mmc_host_is_spi(host)) {
 		err = mmc_select_card(card);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto free_card;
+		}
 	}
 
 	if (!oldcard) {
@@ -443,18 +468,27 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		 */
 		err = mmc_app_send_scr(card, card->raw_scr);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto free_card;
+		}
 
 		err = mmc_decode_scr(card);
 		if (err < 0)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto free_card;
+		}
 
 		/*
 		 * Fetch switch information from card.
 		 */
 		err = mmc_read_switch(card);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto free_card;
+		}
 	}
 
 	/*
@@ -462,7 +496,10 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	 */
 	err = mmc_switch_hs(card);
 	if (err)
+	{
+		printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 		goto free_card;
+	}
 
 	/*
 	 * Compute bus speed.
@@ -485,7 +522,10 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		(card->scr.bus_widths & SD_SCR_BUS_WIDTH_4)) {
 		err = mmc_app_set_bus_width(card, MMC_BUS_WIDTH_4);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto free_card;
+		}
 
 		mmc_set_bus_width(host, MMC_BUS_WIDTH_4);
 	}
@@ -636,7 +676,10 @@ int mmc_attach_sd(struct mmc_host *host, u32 ocr)
 
 		err = mmc_spi_read_ocr(host, 0, &ocr);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto err;
+		}
 	}
 
 	/*
@@ -664,6 +707,7 @@ int mmc_attach_sd(struct mmc_host *host, u32 ocr)
 	 */
 	if (!host->ocr) {
 		err = -EINVAL;
+		printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 		goto err;
 	}
 
@@ -672,13 +716,19 @@ int mmc_attach_sd(struct mmc_host *host, u32 ocr)
 	 */
 	err = mmc_sd_init_card(host, host->ocr, NULL);
 	if (err)
+	{
+		printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 		goto err;
+	}
 
 	mmc_release_host(host);
 
 	err = mmc_add_card(host->card);
 	if (err)
+	{
+		printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 		goto remove_card;
+	}
 
 	return 0;
 

@@ -1,4 +1,5 @@
 /*
+
  * file_storage.c -- File-backed USB Storage Gadget, for USB development
  *
  * Copyright (C) 2003-2007 Alan Stern
@@ -245,6 +246,14 @@
 #include "gadget_chips.h"
 
 
+//janged start
+#include <linux/proc_fs.h>
+#include <linux/gpio.h>
+#include <asm/io.h>
+#include <plat/regs-gpio.h>
+#include <plat/gpio-cfg.h>
+//janged end
+
 
 /*
  * Kbuild is not very cooperative with respect to linking separately
@@ -274,9 +283,12 @@ MODULE_LICENSE("Dual BSD/GPL");
  *
  * DO NOT REUSE THESE IDs with any other driver!!  Ever!!
  * Instead:  allocate your own, using normal USB-IF procedures. */
-#define DRIVER_VENDOR_ID	0x0525	// NetChip
-#define DRIVER_PRODUCT_ID	0xa4a5	// Linux-USB File-backed Storage Gadget
+//#define DRIVER_VENDOR_ID	0x0525	// NetChip
+//#define DRIVER_PRODUCT_ID	0xa4a5	// Linux-USB File-backed Storage Gadget
 
+//janged
+#define DRIVER_VENDOR_ID	0x1006	// NetChip
+#define DRIVER_PRODUCT_ID	0x4023	// Linux-USB File-backed Storage Gadget
 
 /*
  * This driver assumes self-powered hardware and has no way for users to
@@ -284,9 +296,28 @@ MODULE_LICENSE("Dual BSD/GPL");
  * and endpoint addresses.
  */
 
+//janged add start
+#define UMS_CONNECT "UMS_CONNECTED"
+#define UMS_DISCONNECT "UMS_DISCONNECTED"
+
+
+//janged
+#define GADGET_JANGED
+//#define GADGET_DEBUG
+#ifdef GADGET_JANGED
+static int check_sd_status(void);
+void sd_card_info_update(int status);
+//janged
+static void lun_release(struct device *dev);
+static void /* __init_or_exit */ fsg_unbind(struct usb_gadget *gadget);
+extern int sd_mmc_status;
+extern int sd_mmc_status_update;
+int sd_to_usb_status = 0;
+struct usb_gadget *backup_gadget;
+#endif
+//janged add end
 
 /*-------------------------------------------------------------------------*/
-
 #define LDBG(lun,fmt,args...) \
 	dev_dbg(&(lun)->dev , fmt , ## args)
 #define MDBG(fmt,args...) \
@@ -324,8 +355,13 @@ MODULE_LICENSE("Dual BSD/GPL");
 	dev_warn(&(d)->gadget->dev , fmt , ## args)
 #define INFO(d, fmt, args...) \
 	dev_info(&(d)->gadget->dev , fmt , ## args)
-
-
+ 
+//janged
+#ifdef GADGET_DEBUG
+#define dbgg(x...) printk(x)
+#else
+#define dbgg(format, arg...) do {} while (0)
+#endif
 /*-------------------------------------------------------------------------*/
 
 /* Encapsulate the module parameter settings */
@@ -342,14 +378,14 @@ static struct {
 	int		removable;
 	int		can_stall;
 
-	char		*transport_parm;
-	char		*protocol_parm;
+	char				*transport_parm;
+	char				*protocol_parm;
 	unsigned short	vendor;
 	unsigned short	product;
 	unsigned short	release;
-	unsigned int	buflen;
+	unsigned int		buflen;
 
-	int		transport_type;
+	int				transport_type;
 	char		*transport_name;
 	int		protocol_type;
 	char		*protocol_name;
@@ -850,7 +886,8 @@ config_desc = {
 	.bNumInterfaces =	1,
 	.bConfigurationValue =	CONFIG_VALUE,
 	.iConfiguration =	STRING_CONFIG,
-	.bmAttributes =		USB_CONFIG_ATT_ONE | USB_CONFIG_ATT_SELFPOWER,
+//	.bmAttributes =		USB_CONFIG_ATT_ONE | USB_CONFIG_ATT_SELFPOWER,		//janged
+	.bmAttributes =		USB_CONFIG_ATT_ONE | USB_CONFIG_ATT_WAKEUP,
 	.bMaxPower =		CONFIG_USB_GADGET_VBUS_DRAW / 2,
 };
 
@@ -1000,8 +1037,9 @@ static char				serial[13];
 
 /* Static strings, in UTF-8 (for simplicity we use only ASCII characters) */
 static struct usb_string		strings[] = {
-	{STRING_MANUFACTURER,	manufacturer},
-	{STRING_PRODUCT,	longname},
+	//{STRING_MANUFACTURER,	manufacturer},
+	{STRING_MANUFACTURER,	"iriver"},
+	{STRING_PRODUCT,	"iriver"},
 	{STRING_SERIAL,		serial},
 	{STRING_CONFIG,		"Self-powered"},
 	{STRING_INTERFACE,	"Mass Storage"},
@@ -2021,8 +2059,11 @@ static int do_inquiry(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 {
 	u8	*buf = (u8 *) bh->buf;
 
+	//janged modify
+	#if 0
 	static char vendor_id[] = "Linux   ";
 	static char product_id[] = "File-Stor Gadget";
+	#endif
 
 	if (!fsg->curlun) {		// Unsupported LUNs are okay
 		fsg->bad_lun_okay = 1;
@@ -2038,11 +2079,57 @@ static int do_inquiry(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 	buf[3] = 2;		// SCSI-2 INQUIRY data format
 	buf[4] = 31;		// Additional length
 				// No special options
-	sprintf(buf + 8, "%-8s%-16s%04x", vendor_id, product_id,
-			mod_data.release);
+	if(!fsg->lun)
+	{
+		sprintf(buf + 8, "%-8s%-16s%04x", "iriver  ", "Story",
+				mod_data.release);
+	}
+	else
+	{
+		sprintf(buf + 8, "%-8s%-16s%04x", "iriver  ", "SD",
+				mod_data.release);
+	}
+
 	return 36;
 }
 
+/* Added by woong */
+extern unsigned long get_chip_id(void);
+static int do_inquiry_ext(struct fsg_dev *fsg, struct fsg_buffhd *bh)
+{
+	u8	*buf = (u8 *) bh->buf;
+
+	#if 0
+	static char vendor_id[] = "iriver  ";
+	static char product_id[] = "Story";
+	#endif
+	
+	if (!fsg->curlun) {		// Unsupported LUNs are okay
+		fsg->bad_lun_okay = 1;
+		memset(buf, 0, 36);
+		buf[0] = 0x7f;		// Unsupported, no device-type
+		return 36;
+	}
+	
+	memset(buf, 0, 8);	// Non-removable, direct-access device
+	if (mod_data.removable)
+		buf[1] = 0x80;
+	buf[2] = 2;		// ANSI SCSI level 2
+	buf[3] = 2;		// SCSI-2 INQUIRY data format
+	buf[4] = 31 + 20;		// Additional length
+				// No special options
+
+	if(!fsg->lun)
+	{
+		sprintf(buf + 8, "%-8s%-16s%04x%08lx", "iriver  ", "Story", mod_data.release, get_chip_id());
+	}
+	else
+	{
+		sprintf(buf + 8, "%-8s%-16s%04x%08lx", "iriver  ", "SD", mod_data.release, get_chip_id());
+	}
+		
+	return 36+20;
+}
 
 static int do_request_sense(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 {
@@ -2641,8 +2728,8 @@ static int check_command(struct fsg_dev *fsg, int cmnd_size,
 
 	hdlen[0] = 0;
 	if (fsg->data_dir != DATA_DIR_UNKNOWN)
-		sprintf(hdlen, ", H%c=%u", dirletter[(int) fsg->data_dir],
-				fsg->data_size);
+		sprintf(hdlen, ", H%c=%u", dirletter[(int) fsg->data_dir],fsg->data_size);
+	
 	VDBG(fsg, "SCSI command: %s;  Dc=%d, D%c=%u;  Hc=%d%s\n",
 			name, cmnd_size, dirletter[(int) data_dir],
 			fsg->data_size_from_cmnd, fsg->cmnd_size, hdlen);
@@ -2700,11 +2787,13 @@ static int check_command(struct fsg_dev *fsg, int cmnd_size,
 	}
 
 	/* Check that the LUN values are consistent */
-	if (transport_is_bbb()) {
+	if (transport_is_bbb()) 
+	{
 		if (fsg->lun != lun)
-			DBG(fsg, "using LUN %d from CBW, "
-					"not LUN %d from CDB\n",
-					fsg->lun, lun);
+		{
+			//janged nothing
+			//DBG(fsg, "using LUN %d from CBW, "	"not LUN %d from CDB\n", fsg->lun, lun);
+		}
 	} else
 		fsg->lun = lun;		// Use LUN from the command
 
@@ -2738,7 +2827,8 @@ static int check_command(struct fsg_dev *fsg, int cmnd_size,
 		curlun->unit_attention_data = SS_NO_SENSE;
 		return -EINVAL;
 	}
-
+	//changed by woong
+#if 0
 	/* Check that only command bytes listed in the mask are non-zero */
 	fsg->cmnd[1] &= 0x1f;			// Mask away the LUN
 	for (i = 1; i < cmnd_size; ++i) {
@@ -2748,7 +2838,21 @@ static int check_command(struct fsg_dev *fsg, int cmnd_size,
 			return -EINVAL;
 		}
 	}
-
+#else
+	/* Check that only command bytes listed in the mask are non-zero */
+	if (fsg->cmnd[2] != 0xcd && fsg->cmnd[4] != 56)
+	{
+		fsg->cmnd[1] &= 0x1f;			// Mask away the LUN
+		for (i = 1; i < cmnd_size; ++i) {
+			if (fsg->cmnd[i] && !(mask & (1 << i))) {
+				if (curlun)
+					curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
+				return -EINVAL;
+			}
+		}
+	}
+	
+#endif
 	/* If the medium isn't mounted and the command needs to access
 	 * it, return an error. */
 	if (curlun && !backing_file_is_open(curlun) && needs_medium) {
@@ -2785,10 +2889,22 @@ static int do_scsi_command(struct fsg_dev *fsg)
 
 	case SC_INQUIRY:
 		fsg->data_size_from_cmnd = fsg->cmnd[4];
-		if ((reply = check_command(fsg, 6, DATA_DIR_TO_HOST,
-				(1<<4), 0,
-				"INQUIRY")) == 0)
+		/* changed by woong */
+#if 0
+		if ((reply = check_command(fsg, 6, DATA_DIR_TO_HOST, (1<<4), 0,"INQUIRY")) == 0)
+		{
 			reply = do_inquiry(fsg, bh);
+		}
+#else
+		if ((reply = check_command(fsg, 6, DATA_DIR_TO_HOST, (1<<4), 0,"INQUIRY")) == 0)
+		{
+			//printk("\n\n %d %d %d %d\n", fsg->cmnd[1], fsg->cmnd[2], fsg->cmnd[3], fsg->cmnd[4]);
+			if (fsg->cmnd[2] == 0xcd && fsg->data_size_from_cmnd == 56 )
+				reply = do_inquiry_ext(fsg, bh);
+			else
+				reply = do_inquiry(fsg, bh);
+		}		
+#endif
 		break;
 
 	case SC_MODE_SELECT_6:
@@ -3226,6 +3342,10 @@ reset:
 	return rc;
 }
 
+//janged add end
+static struct proc_dir_entry *ums_dir 		= NULL;
+
+//janged add end
 
 /*
  * Change our operational configuration.  This code must agree with the code
@@ -3244,23 +3364,30 @@ static int do_set_config(struct fsg_dev *fsg, u8 new_config)
 		DBG(fsg, "reset config\n");
 		fsg->config = 0;
 		rc = do_set_interface(fsg, -1);
+		dbgg("gadget driver test ++++++=\n");
 	}
 
 	/* Enable the interface */
 	if (new_config != 0) {
 		fsg->config = new_config;
 		if ((rc = do_set_interface(fsg, 0)) != 0)
+		{
 			fsg->config = 0;	// Reset on errors
-		else {
+			dbgg("gadget driver fail !!!\n");
+		}
+		else 
+		{
 			char *speed;
 
 			switch (fsg->gadget->speed) {
 			case USB_SPEED_LOW:	speed = "low";	break;
-			case USB_SPEED_FULL:	speed = "full";	break;
+			case USB_SPEED_FULL:	speed = "full";		break;
 			case USB_SPEED_HIGH:	speed = "high";	break;
 			default: 		speed = "?";	break;
 			}
 			INFO(fsg, "%s speed config #%d\n", speed, fsg->config);
+			//janged
+			create_proc_entry(UMS_CONNECT, S_IFREG | S_IWUSR, ums_dir);
 		}
 	}
 	return rc;
@@ -3363,6 +3490,7 @@ static void handle_exception(struct fsg_dev *fsg)
 		break;
 
 	case FSG_STATE_ABORT_BULK_OUT:
+		dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 		send_status(fsg);
 		spin_lock_irq(&fsg->lock);
 		if (fsg->state == FSG_STATE_STATUS_PHASE)
@@ -3374,6 +3502,7 @@ static void handle_exception(struct fsg_dev *fsg)
 		/* In case we were forced against our will to halt a
 		 * bulk endpoint, clear the halt now.  (The SuperH UDC
 		 * requires this.) */
+		 dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 		if (test_and_clear_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags))
 			usb_ep_clear_halt(fsg->bulk_in);
 
@@ -3394,40 +3523,59 @@ static void handle_exception(struct fsg_dev *fsg)
 	case FSG_STATE_INTERFACE_CHANGE:
 		rc = do_set_interface(fsg, 0);
 		if (fsg->ep0_req_tag != exception_req_tag)
+		{
+			dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 			break;
+		}
 		if (rc != 0)			// STALL on errors
+		{
+			dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 			fsg_set_halt(fsg, fsg->ep0);
-		else				// Complete the status stage
+		}
+		else
+		{// Complete the status stage
+			dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 			ep0_queue(fsg);
+		}
 		break;
 
 	case FSG_STATE_CONFIG_CHANGE:
 		rc = do_set_config(fsg, new_config);
 		if (fsg->ep0_req_tag != exception_req_tag)
+		{
+			dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 			break;
+		}
+
 		if (rc != 0)			// STALL on errors
+		{
+			dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
+			//janged
 			fsg_set_halt(fsg, fsg->ep0);
+		}
 		else				// Complete the status stage
+		{
+			dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 			ep0_queue(fsg);
+		}
 		break;
 
 	case FSG_STATE_DISCONNECT:
 		fsync_all(fsg);
 		do_set_config(fsg, 0);		// Unconfigured state
+		dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 		break;
 
 	case FSG_STATE_EXIT:
 	case FSG_STATE_TERMINATED:
 		do_set_config(fsg, 0);			// Free resources
+		dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 		spin_lock_irq(&fsg->lock);
 		fsg->state = FSG_STATE_TERMINATED;	// Stop the thread
 		spin_unlock_irq(&fsg->lock);
 		break;
 	}
 }
-
-
-/*-------------------------------------------------------------------------*/
 
 static int fsg_main_thread(void *fsg_)
 {
@@ -3449,7 +3597,24 @@ static int fsg_main_thread(void *fsg_)
 	set_fs(get_ds());
 
 	/* The main loop */
-	while (fsg->state != FSG_STATE_TERMINATED) {
+	while (fsg->state != FSG_STATE_TERMINATED) 
+	{
+		//janged add start
+		/* SD card 착탈이 이루어 지는 것을 확인 한후 
+		    정보를 업데이트 함 
+		*/
+		#ifdef GADGET_JANGED
+		if(check_sd_status())
+		{
+			if (fsg->state == FSG_STATE_IDLE) 
+			{
+				sd_mmc_status_update = 0;
+				sd_card_info_update(sd_mmc_status);
+				continue;
+			}
+		}
+		#endif
+		//janged add end
 		if (exception_in_progress(fsg) || signal_pending(current)) {
 			handle_exception(fsg);
 			continue;
@@ -3524,7 +3689,9 @@ static int open_backing_file(struct lun *curlun, const char *filename)
 	}
 	if (ro)
 		filp = filp_open(filename, O_RDONLY | O_LARGEFILE, 0);
-	if (IS_ERR(filp)) {
+
+	if (IS_ERR(filp)) 
+	{
 		LINFO(curlun, "unable to open backing file: %s\n", filename);
 		return PTR_ERR(filp);
 	}
@@ -3534,41 +3701,60 @@ static int open_backing_file(struct lun *curlun, const char *filename)
 
 	if (filp->f_path.dentry)
 		inode = filp->f_path.dentry->d_inode;
-	if (inode && S_ISBLK(inode->i_mode)) {
+
+	if (inode && S_ISBLK(inode->i_mode)) 
+	{
 		if (bdev_read_only(inode->i_bdev))
+		{
 			ro = 1;
-	} else if (!inode || !S_ISREG(inode->i_mode)) {
+		}
+	} 
+	else if (!inode || !S_ISREG(inode->i_mode)) 
+	{
 		LINFO(curlun, "invalid file type: %s\n", filename);
 		goto out;
 	}
 
 	/* If we can't read the file, it's no good.
 	 * If we can't write the file, use it read-only. */
-	if (!filp->f_op || !(filp->f_op->read || filp->f_op->aio_read)) {
+	if (!filp->f_op || !(filp->f_op->read || filp->f_op->aio_read)) 
+	{
 		LINFO(curlun, "file not readable: %s\n", filename);
 		goto out;
 	}
 	if (!(filp->f_op->write || filp->f_op->aio_write))
 		ro = 1;
 
-	size = i_size_read(inode->i_mapping->host);
-	if (size < 0) {
-		LINFO(curlun, "unable to find file size: %s\n", filename);
-		rc = (int) size;
-		goto out;
+	//janged
+	if (ro == 1)
+	{
+		size = 0;
+		num_sectors = 0;
 	}
-	num_sectors = size >> 9;	// File size in 512-byte sectors
-	if (num_sectors == 0) {
-		LINFO(curlun, "file too small: %s\n", filename);
-		rc = -ETOOSMALL;
-		goto out;
+	else
+	{
+		size = i_size_read(inode->i_mapping->host);
+		if (size < 0) 
+		{
+			LINFO(curlun, "unable to find file size: %s\n", filename);
+			rc = (int) size;
+			goto out;
+		}
+		num_sectors = size >> 9;	// File size in 512-byte sectors
+		if (num_sectors == 0) 
+		{
+			LINFO(curlun, "file too small: %s\n", filename);
+			rc = -ETOOSMALL;
+			goto out;
+		}
 	}
-
 	get_file(filp);
+
 	curlun->ro = ro;
 	curlun->filp = filp;
 	curlun->file_length = size;
 	curlun->num_sectors = num_sectors;
+
 	LDBG(curlun, "open backing file: %s\n", filename);
 	rc = 0;
 
@@ -3682,6 +3868,7 @@ static ssize_t store_file(struct device *dev, struct device_attribute *attr,
 	/* Load new medium */
 	if (count > 0 && buf[0]) {
 		rc = open_backing_file(curlun, buf);
+
 		if (rc == 0)
 			curlun->unit_attention_data =
 					SS_NOT_READY_TO_READY_TRANSITION;
@@ -3695,7 +3882,9 @@ static ssize_t store_file(struct device *dev, struct device_attribute *attr,
 static DEVICE_ATTR(ro, 0444, show_ro, NULL);
 static DEVICE_ATTR(file, 0444, show_file, NULL);
 
-
+//janged
+extern void usb_otg_clk_disable(void);
+extern void usb_otg_clk_enable(void);
 /*-------------------------------------------------------------------------*/
 
 static void fsg_release(struct kref *ref)
@@ -3841,7 +4030,9 @@ static int __init check_parameters(struct fsg_dev *fsg)
 	return 0;
 }
 
-
+//janged
+extern int get_cur_clock_state(void);
+extern int janged_mmc_partition_num;
 static int __init fsg_bind(struct usb_gadget *gadget)
 {
 	struct fsg_dev		*fsg = the_fsg;
@@ -3852,11 +4043,41 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 	struct usb_request	*req;
 	char			*pathbuf, *p;
 
+	dbgg("%s, %d, +++++++++++++++++++++++\n", __FUNCTION__, __LINE__);
+
+	/* janged add start 
+	   GPM관련 Port 초기화 
+	   GPM 2 : VBUS
+	   GPM 3 : USB Detect
+	   GPM 4 : Ghager Status 이건 다른 곳에서 
+	   GPM 5 : F/W download status(공정시 필요) 이건 다른 곳에서 
+	*/
+//	usb_otg_clk_enable();
+	//GPM3 INPUT 모드로 
+
+		//GPK1 (48MHZ_EN)을 High 로 올립니다. 100ms 후에 vbus on
+
+
+	if(sd_mmc_status && janged_mmc_partition_num == 0)
+	{
+		dbgg("%s, %d, /dev/mmcblk1 +++++++++++++++\n", __FUNCTION__, __LINE__);		
+		strcpy(mod_data.file[1], "/dev/mmcblk1");
+	}
+	else if(sd_mmc_status && janged_mmc_partition_num > 0)
+	{
+		strcpy(mod_data.file[1], "/dev/mmcblk1p1");
+	}
+
+	/* janged add end*/
 	fsg->gadget = gadget;
 	set_gadget_data(gadget, fsg);
 	fsg->ep0 = gadget->ep0;
 	fsg->ep0->driver_data = fsg;
 
+	#ifdef GADGET_JANGED
+	backup_gadget = gadget;
+	#endif
+	
 	if ((rc = check_parameters(fsg)) != 0)
 		goto out;
 
@@ -3883,37 +4104,51 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 		rc = -ENOMEM;
 		goto out;
 	}
+
 	fsg->nluns = i;
 
-	for (i = 0; i < fsg->nluns; ++i) {
+	for (i = 0; i < fsg->nluns; ++i) 
+	{
 		curlun = &fsg->luns[i];
 		curlun->ro = mod_data.ro[i];
 		curlun->dev.release = lun_release;
 		curlun->dev.parent = &gadget->dev;
 		curlun->dev.driver = &fsg_driver.driver;
 		dev_set_drvdata(&curlun->dev, fsg);
-		dev_set_name(&curlun->dev,"%s-lun%d",
-			     dev_name(&gadget->dev), i);
+		dev_set_name(&curlun->dev,"%s-lun%d",  dev_name(&gadget->dev), i);
 
-		if ((rc = device_register(&curlun->dev)) != 0) {
+		if ((rc = device_register(&curlun->dev)) != 0) 
+		{
 			INFO(fsg, "failed to register LUN%d: %d\n", i, rc);
 			goto out;
 		}
-		if ((rc = device_create_file(&curlun->dev,
-					&dev_attr_ro)) != 0 ||
-				(rc = device_create_file(&curlun->dev,
-					&dev_attr_file)) != 0) {
+		
+		if ((rc = device_create_file(&curlun->dev, &dev_attr_ro)) != 0 ||
+				(rc = device_create_file(&curlun->dev,	&dev_attr_file)) != 0) 
+		{
 			device_unregister(&curlun->dev);
 			goto out;
 		}
 		curlun->registered = 1;
 		kref_get(&fsg->ref);
 
-		if (mod_data.file[i] && *mod_data.file[i]) {
-			if ((rc = open_backing_file(curlun,
-					mod_data.file[i])) != 0)
+		if (mod_data.file[i] && *mod_data.file[i]) 
+		{
+			#ifdef GADGET_JANGED
+			if(i == 1 && sd_mmc_status != 1)
+			{
+				curlun->ro = 1;
+			} else
+			#endif
+
+			if ((rc = open_backing_file(curlun, mod_data.file[i])) != 0)
+			{
 				goto out;
-		} else if (!mod_data.removable) {
+			}
+
+		} 
+		else if (!mod_data.removable) 
+		{
 			ERROR(fsg, "no file given for LUN%d\n", i);
 			rc = -EINVAL;
 			goto out;
@@ -3921,19 +4156,26 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 	}
 
 	/* Find all the endpoints we will use */
+//	dbgg("%s, %d, +++++++++++++++++++++++\n", __FUNCTION__, __LINE__);
 	usb_ep_autoconfig_reset(gadget);
+//dbgg("%s, %d, +++++++++++++++++++++++\n", __FUNCTION__, __LINE__);
 	ep = usb_ep_autoconfig(gadget, &fs_bulk_in_desc);
+//	dbgg("%s, %d, +++++++++++++++++++++++\n", __FUNCTION__, __LINE__);
 	if (!ep)
 		goto autoconf_fail;
+
+//	dbgg("%s, %d, +++++++++++++++++++++++\n", __FUNCTION__, __LINE__);
 	ep->driver_data = fsg;		// claim the endpoint
 	fsg->bulk_in = ep;
 
+//	dbgg("%s, %d, +++++++++++++++++++++++\n", __FUNCTION__, __LINE__);
 	ep = usb_ep_autoconfig(gadget, &fs_bulk_out_desc);
 	if (!ep)
 		goto autoconf_fail;
 	ep->driver_data = fsg;		// claim the endpoint
 	fsg->bulk_out = ep;
 
+//	dbgg("%s, %d, +++++++++++++++++++++++\n", __FUNCTION__, __LINE__);
 	if (transport_is_cbi()) {
 		ep = usb_ep_autoconfig(gadget, &fs_intr_in_desc);
 		if (!ep)
@@ -4014,8 +4256,7 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 		sprintf(&serial[i], "%02X", c);
 	}
 
-	fsg->thread_task = kthread_create(fsg_main_thread, fsg,
-			"file-storage-gadget");
+	fsg->thread_task = kthread_create(fsg_main_thread, fsg,"file-storage-gadget");
 	if (IS_ERR(fsg->thread_task)) {
 		rc = PTR_ERR(fsg->thread_task);
 		goto out;
@@ -4025,6 +4266,7 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 	INFO(fsg, "Number of LUNs=%d\n", fsg->nluns);
 
 	pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
+
 	for (i = 0; i < fsg->nluns; ++i) {
 		curlun = &fsg->luns[i];
 		if (backing_file_is_open(curlun)) {
@@ -4039,6 +4281,7 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 					curlun->ro, (p ? p : "(error)"));
 		}
 	}
+
 	kfree(pathbuf);
 
 	DBG(fsg, "transport=%s (x%02x)\n",
@@ -4056,6 +4299,7 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 
 	/* Tell the thread to start working */
 	wake_up_process(fsg->thread_task);
+
 	return 0;
 
 autoconf_fail:
@@ -4077,7 +4321,19 @@ static void fsg_suspend(struct usb_gadget *gadget)
 	struct fsg_dev		*fsg = get_gadget_data(gadget);
 
 	DBG(fsg, "suspend\n");
+	dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 	set_bit(SUSPENDED, &fsg->atomic_bitflags);
+	//PC에서 장치 제거 를 호출 한 경우. 우리는 가젯 드라이버를 내려야 한다. 
+	//janged
+	if(fsg->running)
+	{
+		create_proc_entry(UMS_DISCONNECT, S_IFREG | S_IWUSR, ums_dir);
+		gpio_set_value(S3C64XX_GPM(2), 0);
+       	gpio_set_value(S3C64XX_GPK(1), 0);	
+
+	}
+
+	fsg->running = 0;
 }
 
 static void fsg_resume(struct usb_gadget *gadget)
@@ -4085,9 +4341,96 @@ static void fsg_resume(struct usb_gadget *gadget)
 	struct fsg_dev		*fsg = get_gadget_data(gadget);
 
 	DBG(fsg, "resume\n");
+	dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
 	clear_bit(SUSPENDED, &fsg->atomic_bitflags);
 }
 
+
+/*-------------------------------------------------------------------------*/
+/* janged
+sd_pin_status 0 : remove
+sd_pin_status 1 : insert
+
+sd_to_usb_status 0 : sd mounted on pc
+sd_to_usb_status 1 : sd unmounted on pc
+*/
+#ifdef GADGET_JANGED
+void sd_card_info_update(int status)
+{
+	int rc;
+	struct fsg_dev		*fsg = the_fsg;
+	struct lun		*curlun = NULL;
+
+	if(status == 1)
+	{
+		if(janged_mmc_partition_num == 0)
+		{
+			//dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
+			strcpy(mod_data.file[1], "/dev/mmcblk1");
+		}
+		else if(janged_mmc_partition_num > 0)
+		{
+			//dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
+			strcpy(mod_data.file[1], "/dev/mmcblk1p1");
+		}
+
+		curlun = &fsg->luns[1];
+		curlun->ro = mod_data.ro[1];
+		curlun->dev.release = lun_release;
+		curlun->dev.parent = &backup_gadget->dev;
+		curlun->dev.driver = &fsg_driver.driver;
+		//dbgg("F%s, L%d +++++++\n", __FUNCTION__, __LINE__);
+
+		down_write(&fsg->filesem);
+		if ((rc = open_backing_file(curlun, mod_data.file[1])) != 0)
+		{
+			printk("%s, %d, open_backing_file fail !!!\n", __FUNCTION__, __LINE__);
+		}
+		up_write(&fsg->filesem);
+		dev_set_drvdata(&curlun->dev, fsg);
+		dev_set_name(&curlun->dev,"%s-lun%d",  dev_name(&backup_gadget->dev), 1);
+		
+		dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
+
+	}
+	else if(status == 0)
+	{
+		curlun = &fsg->luns[1];
+		curlun->ro = 1;
+		curlun->dev.release = lun_release;
+		curlun->dev.parent = &backup_gadget->dev;
+		curlun->dev.driver = &fsg_driver.driver;
+		dev_set_drvdata(&curlun->dev, fsg);
+		dev_set_name(&curlun->dev,"%s-lun%d",  dev_name(&backup_gadget->dev), 1);
+
+		/* Eject current medium */
+		down_write(&fsg->filesem);
+		if (backing_file_is_open(curlun)) {
+			close_backing_file(curlun);
+			curlun->unit_attention_data = SS_MEDIUM_NOT_PRESENT;
+		}
+
+		up_write(&fsg->filesem);
+
+		dbgg("F%s, L%d+++++++\n", __FUNCTION__, __LINE__);
+
+	}
+}
+
+
+static int check_sd_status(void)
+{
+
+	//dirver/mmc/core/bus.c에서 정보 업데이트 함
+	// sd_mmc_status_update : SD card가 들어오거나 , 빠지면 1
+
+	if(sd_mmc_status_update == -1)
+	{
+		sd_mmc_status_update = 0;
+	}
+	return sd_mmc_status_update;
+}
+#endif
 
 /*-------------------------------------------------------------------------*/
 
@@ -4131,12 +4474,19 @@ static int __init fsg_alloc(void)
 	return 0;
 }
 
-
 static int __init fsg_init(void)
 {
 	int		rc;
 	struct fsg_dev	*fsg;
+	usb_otg_clk_enable();
 
+	//janged add start
+	if(ums_dir == NULL)
+	{
+		ums_dir = proc_mkdir("UMS-PC", NULL);
+	}
+	//janged add end
+	
 	if ((rc = fsg_alloc()) != 0)
 		return rc;
 	fsg = the_fsg;
@@ -4160,5 +4510,20 @@ static void __exit fsg_cleanup(void)
 
 	close_all_backing_files(fsg);
 	kref_put(&fsg->ref, fsg_release);
+
+	// 모듈 내리면서 VBUS off 
+	// janged
+       gpio_set_value(S3C64XX_GPM(2), 0);
+       gpio_set_value(S3C64XX_GPK(1), 0);	
+       remove_proc_entry(UMS_CONNECT, ums_dir);
+//       create_proc_entry(UMS_DISCONNECT, S_IFREG | S_IWUSR, ums_dir);	
+       remove_proc_entry(UMS_DISCONNECT, ums_dir);
+       remove_proc_entry("UMS-PC", NULL);
+//       usb_otg_clk_disable();
+
+	#ifdef GADGET_JANGED
+       sd_mmc_status_update = -1;
+       #endif
+       ums_dir = NULL;
 }
 module_exit(fsg_cleanup);

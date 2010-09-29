@@ -209,6 +209,10 @@ static u32 mmc_sd_num_wr_blocks(struct mmc_card *card)
 	return blocks;
 }
 
+//janged
+extern int sd_mmc_status;
+extern int sd_mmc_status_update;
+
 static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 {
 	struct mmc_blk_data *md = mq->data;
@@ -347,6 +351,28 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 	 * For reads we just fail the entire chunk as that should
 	 * be safe in all cases.
 	 */
+
+	//janged add start USB gadget으로 알려주기 위해서 
+	if(!strcmp(req->rq_disk->disk_name, "mmcblk1"))
+	{
+		sd_mmc_status = 0;
+		if(sd_mmc_status_update == 0)
+		{
+			sd_mmc_status_update = 1;
+		}
+	}
+
+	if(!strcmp(req->rq_disk->disk_name, "mmcblk2"))
+	{
+		sd_mmc_status = 0;
+		if(sd_mmc_status_update == 0)
+		{
+			sd_mmc_status_update = 1;
+		}
+	}
+
+	//janged add end USB gadget으로 알려주기 위해서 
+	 
 	if (rq_data_dir(req) != READ) {
 		if (mmc_card_sd(card)) {
 			u32 blocks;

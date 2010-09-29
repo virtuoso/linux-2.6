@@ -38,6 +38,8 @@ static inline void arch_reset(char mode)
 {
 	void __iomem *hdr_ctrl = __io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_RESETCTL_OFFSET;
 	unsigned int val;
+	//janged add for debug
+	printk("F%s, L%d \n", __FUNCTION__, __LINE__);
 
 	/*
 	 * To reset, we hit the on-board reset register

@@ -211,11 +211,28 @@ struct mmc_card *mmc_alloc_card(struct mmc_host *host, struct device_type *type)
 /*
  * Register a new MMC card with the driver model.
  */
+ //janged
+int sd_mmc_status = -1;
+int sd_mmc_status_update = -1;
+
+ EXPORT_SYMBOL(sd_mmc_status);
+ EXPORT_SYMBOL(sd_mmc_status_update);
+
+/* woong */
+extern void clear_sleep_count(void);
+ 
 int mmc_add_card(struct mmc_card *card)
 {
 	int ret;
 	const char *type;
 
+	/* woong */
+	if(!strcmp(mmc_hostname(card->host), "mmc1"))
+	{
+		clear_sleep_count();
+	}
+	/* end */
+	
 	dev_set_name(&card->dev, "%s:%04x", mmc_hostname(card->host), card->rca);
 
 	switch (card->type) {
@@ -235,12 +252,15 @@ int mmc_add_card(struct mmc_card *card)
 		break;
 	}
 
-	if (mmc_host_is_spi(card->host)) {
+	if (mmc_host_is_spi(card->host)) 
+	{
 		printk(KERN_INFO "%s: new %s%s card on SPI\n",
 			mmc_hostname(card->host),
 			mmc_card_highspeed(card) ? "high speed " : "",
 			type);
-	} else {
+	} 
+	else 
+	{
 		printk(KERN_INFO "%s: new %s%s card at address %04x\n",
 			mmc_hostname(card->host),
 			mmc_card_highspeed(card) ? "high speed " : "",
@@ -248,9 +268,24 @@ int mmc_add_card(struct mmc_card *card)
 	}
 
 	ret = device_add(&card->dev);
+	//janged USB gadget으로 알려주기 위해서 
+	if(!strcmp(mmc_hostname(card->host), "mmc1"))
+	{
+		sd_mmc_status = 1;
+		if(sd_mmc_status_update == 0)
+		{
+			sd_mmc_status_update = 1;
+		}
+	}
+	
+	//janged add end USB gadget으로 알려주기 위해서 
 	if (ret)
-		return ret;
+	{
 
+		return ret;
+	}
+
+	
 #ifdef CONFIG_DEBUG_FS
 	mmc_add_card_debugfs(card);
 #endif
@@ -270,6 +305,9 @@ void mmc_remove_card(struct mmc_card *card)
 	mmc_remove_card_debugfs(card);
 #endif
 
+	/* woong */
+	clear_sleep_count();
+
 	if (mmc_card_present(card)) {
 		if (mmc_host_is_spi(card->host)) {
 			printk(KERN_INFO "%s: SPI card removed\n",
@@ -279,6 +317,17 @@ void mmc_remove_card(struct mmc_card *card)
 				mmc_hostname(card->host), card->rca);
 		}
 		device_del(&card->dev);
+
+		//janged add start USB gadget으로 알려주기 위해서 
+		if(!strcmp(mmc_hostname(card->host), "mmc1"))
+		{
+			sd_mmc_status = 0;
+			if(sd_mmc_status_update == 0)
+			{
+				sd_mmc_status_update = 1;
+			}
+		}
+		//janged add end USB gadget으로 알려주기 위해서 
 	}
 
 	put_device(&card->dev);

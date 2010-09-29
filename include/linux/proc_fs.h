@@ -199,7 +199,6 @@ extern struct file *get_mm_exe_file(struct mm_struct *mm);
 extern void dup_mm_exe_file(struct mm_struct *oldmm, struct mm_struct *newmm);
 
 #else
-
 #define proc_net_fops_create(net, name, mode, fops)  ({ (void)(mode), NULL; })
 static inline void proc_net_remove(struct net *net, const char *name) {}
 

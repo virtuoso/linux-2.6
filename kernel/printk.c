@@ -382,7 +382,7 @@ out:
 	return error;
 }
 
-asmlinkage long sys_syslog(int type, char __user *buf, int len)
+SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
 {
 	return do_syslog(type, buf, len);
 }
@@ -560,6 +560,9 @@ asmlinkage int printk(const char *fmt, ...)
 	va_list args;
 	int r;
 
+	#ifdef CONFIG_DISABLE_PRINTK
+		return 0;
+	#endif
 	va_start(args, fmt);
 	r = vprintk(fmt, args);
 	va_end(args);
@@ -741,11 +744,6 @@ EXPORT_SYMBOL(printk);
 EXPORT_SYMBOL(vprintk);
 
 #else
-
-asmlinkage long sys_syslog(int type, char __user *buf, int len)
-{
-	return -ENOSYS;
-}
 
 static void call_console_drivers(unsigned start, unsigned end)
 {

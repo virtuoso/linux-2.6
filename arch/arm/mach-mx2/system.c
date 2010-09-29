@@ -49,7 +49,6 @@ void arch_idle(void)
 void arch_reset(char mode)
 {
 	struct clk *clk;
-
 	clk = clk_get(NULL, "wdog_clk");
 	if (!clk) {
 		printk(KERN_ERR"Cannot activate the watchdog. Giving up\n");

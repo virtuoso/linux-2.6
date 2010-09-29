@@ -182,6 +182,7 @@ check_partition(struct gendisk *hd, struct block_device *bdev)
 		}
 
 	}
+
 	if (res > 0)
 		return state;
 	if (err)

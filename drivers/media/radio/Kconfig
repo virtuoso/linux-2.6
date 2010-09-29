@@ -388,3 +388,10 @@ config USB_MR800
 	  module will be called radio-mr800.
 
 endif # RADIO_ADAPTERS
+
+config RADIO_SI4702
+	bool "ebook SI4702 FM Tuner"
+	depends on I2C
+	default n
+	---help---
+	  ebook FM radio

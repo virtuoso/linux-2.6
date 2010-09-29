@@ -662,8 +662,9 @@ void mmc_rescan(struct work_struct *work)
 	int err;
 
 	mmc_bus_get(host);
-
-	if (host->bus_ops == NULL) {
+	//printk("%s, %d, ++++++++++++ \n", __FUNCTION__, __LINE__);
+	if (host->bus_ops == NULL) 
+	{
 		/*
 		 * Only we can add a new handler, so it's safe to
 		 * release the lock here.
@@ -689,7 +690,6 @@ void mmc_rescan(struct work_struct *work)
 				mmc_power_off(host);
 			goto out;
 		}
-
 		/*
 		 * ...then normal SD...
 		 */
@@ -699,7 +699,6 @@ void mmc_rescan(struct work_struct *work)
 				mmc_power_off(host);
 			goto out;
 		}
-
 		/*
 		 * ...and finally MMC.
 		 */
@@ -709,7 +708,6 @@ void mmc_rescan(struct work_struct *work)
 				mmc_power_off(host);
 			goto out;
 		}
-
 		mmc_release_host(host);
 		mmc_power_off(host);
 	} else {
@@ -726,7 +724,10 @@ out:
 void mmc_start_host(struct mmc_host *host)
 {
 	mmc_power_off(host);
-	mmc_detect_change(host, 0);
+	if (host->caps & MMC_CAP_BOOT_ONTHEFLY)
+		mmc_rescan(&host->detect.work);
+	else
+		mmc_detect_change(host, 0);
 }
 
 void mmc_stop_host(struct mmc_host *host)
@@ -765,8 +766,9 @@ void mmc_stop_host(struct mmc_host *host)
  */
 int mmc_suspend_host(struct mmc_host *host, pm_message_t state)
 {
+	//changed by woong
+#if 0
 	mmc_flush_scheduled_work();
-
 	mmc_bus_get(host);
 	if (host->bus_ops && !host->bus_dead) {
 		if (host->bus_ops->suspend)
@@ -783,7 +785,7 @@ int mmc_suspend_host(struct mmc_host *host, pm_message_t state)
 	mmc_bus_put(host);
 
 	mmc_power_off(host);
-
+#endif
 	return 0;
 }
 
@@ -795,20 +797,18 @@ EXPORT_SYMBOL(mmc_suspend_host);
  */
 int mmc_resume_host(struct mmc_host *host)
 {
+	//changed by wooong
+#if 0
 	mmc_bus_get(host);
 	if (host->bus_ops && !host->bus_dead) {
-		mmc_power_up(host);
-		BUG_ON(!host->bus_ops->resume);
+		//mmc_power_up(host);
+		//BUG_ON(!host->bus_ops->resume);
 		host->bus_ops->resume(host);
 	}
 	mmc_bus_put(host);
 
-	/*
-	 * We add a slight delay here so that resume can progress
-	 * in parallel.
-	 */
+#endif
 	mmc_detect_change(host, 1);
-
 	return 0;
 }
 

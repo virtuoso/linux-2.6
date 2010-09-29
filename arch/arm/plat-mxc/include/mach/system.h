@@ -28,6 +28,9 @@ static inline void arch_idle(void)
 
 static inline void arch_reset(char mode)
 {
+	//janged add for debug
+	printk("F%s, L%d \n", __FUNCTION__, __LINE__);
+	mdelay(1000);
 	cpu_reset(0);
 }
 

@@ -40,6 +40,9 @@ static inline void omap1_arch_reset(char mode)
 
 static inline void arch_reset(char mode)
 {
+	//janged add for debug
+	printk("F%s, L%d \n", __FUNCTION__, __LINE__);
+	mdelay(1000);
 	if (!cpu_class_is_omap2())
 		omap1_arch_reset(mode);
 	else

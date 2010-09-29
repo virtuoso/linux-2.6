@@ -38,7 +38,7 @@
 #include <mach/regs-gpio.h>
 #include <mach/leds-gpio.h>
 
-#include <asm/plat-s3c/nand.h>
+#include <plat/nand.h>
 
 #include <plat/common-smdk.h>
 #include <plat/devs.h>
@@ -153,8 +153,13 @@ static struct s3c2410_nand_set smdk_nand_sets[] = {
 	[0] = {
 		.name		= "NAND",
 		.nr_chips	= 1,
+		#if 0	//janged
 		.nr_partitions	= ARRAY_SIZE(smdk_default_nand_part),
 		.partitions	= smdk_default_nand_part,
+		#else
+		.nr_partitions	= ARRAY_SIZE(s3c_partition_elisa),
+		.partitions	= s3c_partition_elisa,
+		#endif
 	},
 };
 

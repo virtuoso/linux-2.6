@@ -36,6 +36,12 @@
 #include <asm/thread_notify.h>
 #include <asm/mach/time.h>
 
+//janged
+#include <linux/gpio.h>
+#include <asm/io.h>
+#include <plat/regs-gpio.h>
+#include <plat/gpio-cfg.h>
+
 static const char *processor_modes[] = {
   "USER_26", "FIQ_26" , "IRQ_26" , "SVC_26" , "UK4_26" , "UK5_26" , "UK6_26" , "UK7_26" ,
   "UK8_26" , "UK9_26" , "UK10_26", "UK11_26", "UK12_26", "UK13_26", "UK14_26", "UK15_26",
@@ -100,7 +106,6 @@ void arm_machine_restart(char mode)
 	 * Now call the architecture specific reboot code.
 	 */
 	arch_reset(mode);
-
 	/*
 	 * Whoops - the architecture was unable to reboot.
 	 * Tell the user!
@@ -183,19 +188,53 @@ int __init reboot_setup(char *str)
 
 __setup("reboot=", reboot_setup);
 
+extern void ebook_external_poweroff_display(void);
+extern void ebook_external_ready_poweroff(void);
+extern int get_cur_battery_level(void);
+
 void machine_halt(void)
 {
-}
+	//led off.
+	gpio_set_value(S3C64XX_GPL(13), 0);
+	gpio_set_value(S3C64XX_GPK(4), 0);
+	//for display.
+	if (get_cur_battery_level() != 99)
+	{
+		ebook_external_poweroff_display();
+		mdelay(50);
+	}
+	ebook_external_ready_poweroff();
 
+	if(gpio_get_value(S3C64XX_GPM(3)))
+	{
+		__raw_writel(1, S3C_INFORM2);
+		arm_pm_restart(reboot_mode);
+	}
+	else
+	{
+		//janged add for debug
+	//	printk("F%s, L%d \n", __FUNCTION__, __LINE__);
+		__raw_writel(0, S3C_INFORM2);
+		s3c_gpio_cfgpin(S3C64XX_GPK(6), S3C_GPIO_INPUT);//s3c_gpio_cfgpin(S3C_GPK6, S3C_GPK6_INP);
+		s3c_gpio_setpull(S3C64XX_GPK(6), S3C_GPIO_PULL_DOWN);
+	}
+}
 
 void machine_power_off(void)
 {
+	//janged add for debug
+//	printk("F%s, L%d \n", __FUNCTION__, __LINE__);
+
 	if (pm_power_off)
 		pm_power_off();
 }
 
 void machine_restart(char * __unused)
 {
+	//janged add for debug
+//	printk("F%s, L%d \n", __FUNCTION__, __LINE__);
+
+	__raw_writel(1, S3C_INFORM2);
 	arm_pm_restart(reboot_mode);
 }
 

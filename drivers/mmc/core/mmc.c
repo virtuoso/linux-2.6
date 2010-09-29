@@ -56,6 +56,10 @@ static const unsigned int tacc_mant[] = {
 /*
  * Given the decoded CSD structure, decode the raw CID to our CID structure.
  */
+
+ //janged
+ unsigned long elisamoviserial = 0;
+ EXPORT_SYMBOL(elisamoviserial);
 static int mmc_decode_cid(struct mmc_card *card)
 {
 	u32 *resp = card->raw_cid;
@@ -102,6 +106,14 @@ static int mmc_decode_cid(struct mmc_card *card)
 		printk(KERN_ERR "%s: card has unknown MMCA version %d\n",
 			mmc_hostname(card->host), card->csd.mmca_vsn);
 		return -EINVAL;
+	}
+	//janged movi nand serial ÀÐ±â 
+	if(!strcmp(mmc_hostname(card->host), "mmc0"))
+	{
+		printk("###################################\n");
+		printk("[[[[[[[[[[ mmc serial= %x ]]]]]]]]]\n", card->cid.serial);
+		printk("###################################\n");
+		elisamoviserial = (unsigned long)card->cid.serial;
 	}
 
 	return 0;
@@ -208,7 +220,7 @@ static int mmc_read_ext_csd(struct mmc_card *card)
 	}
 
 	ext_csd_struct = ext_csd[EXT_CSD_REV];
-	if (ext_csd_struct > 2) {
+	if (ext_csd_struct > 3) {
 		printk(KERN_ERR "%s: unrecognised EXT_CSD structure "
 			"version %d\n", mmc_hostname(card->host),
 			ext_csd_struct);
@@ -413,7 +425,8 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 
 		mmc_card_set_highspeed(card);
 
-		mmc_set_timing(card->host, MMC_TIMING_MMC_HS);
+		mmc_set_timing(card->host, MMC_TIMING_MMC_HS);		
+		//mmc_set_timing(card->host, MMC_TIMING_SD_HS);
 	}
 
 	/*
@@ -434,13 +447,24 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	 * Activate wide bus (if supported).
 	 */
 	if ((card->csd.mmca_vsn >= CSD_SPEC_VER_4) &&
-		(host->caps & MMC_CAP_4_BIT_DATA)) {
+	    (host->caps & (MMC_CAP_4_BIT_DATA | MMC_CAP_8_BIT_DATA))) {
+		unsigned ext_csd_bit, bus_width;
+
+		if (host->caps & MMC_CAP_8_BIT_DATA) {
+			ext_csd_bit = EXT_CSD_BUS_WIDTH_8;
+			bus_width = MMC_BUS_WIDTH_8;
+		} else {
+			ext_csd_bit = EXT_CSD_BUS_WIDTH_4;
+			bus_width = MMC_BUS_WIDTH_4;
+		}
+
 		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-			EXT_CSD_BUS_WIDTH, EXT_CSD_BUS_WIDTH_4);
+				 EXT_CSD_BUS_WIDTH, ext_csd_bit);
+
 		if (err)
 			goto free_card;
 
-		mmc_set_bus_width(card->host, MMC_BUS_WIDTH_4);
+		mmc_set_bus_width(card->host, bus_width);
 	}
 
 	if (!oldcard)
@@ -572,7 +596,10 @@ int mmc_attach_mmc(struct mmc_host *host, u32 ocr)
 	if (mmc_host_is_spi(host)) {
 		err = mmc_spi_read_ocr(host, 1, &ocr);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			goto err;
+		}
 	}
 
 	/*
@@ -593,7 +620,10 @@ int mmc_attach_mmc(struct mmc_host *host, u32 ocr)
 	 */
 	if (!host->ocr) {
 		err = -EINVAL;
-		goto err;
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
+			goto err;
+		}
 	}
 
 	/*
@@ -601,13 +631,19 @@ int mmc_attach_mmc(struct mmc_host *host, u32 ocr)
 	 */
 	err = mmc_init_card(host, host->ocr, NULL);
 	if (err)
+	{
+		printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 		goto err;
+	}
 
 	mmc_release_host(host);
 
 	err = mmc_add_card(host->card);
 	if (err)
+	{
+		printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 		goto remove_card;
+	}
 
 	return 0;
 

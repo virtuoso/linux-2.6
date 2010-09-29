@@ -33,6 +33,9 @@ EXPORT_SYMBOL(pm_set_vt_switch);
 
 int pm_prepare_console(void)
 {
+	//bug? woong
+	return 0;
+
 	acquire_console_sem();
 
 	if (disable_vt_switch) {
@@ -71,6 +74,9 @@ int pm_prepare_console(void)
 
 void pm_restore_console(void)
 {
+	//bug? woong
+	return;
+
 	acquire_console_sem();
 	if (disable_vt_switch) {
 		release_console_sem();

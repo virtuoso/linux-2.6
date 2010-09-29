@@ -220,4 +220,15 @@ config HP_SDC_RTC
 	  Say Y here if you want to support the built-in real time clock
 	  of the HP SDC controller.
 
+config HWDETECT_ELICE
+	tristate "ebook(elice) hw detect"
+	depends on CPU_S3C6410
+	help
+	  ebook(elice) hw detect
+
+config HWKEY_ELICE
+	tristate "ebook(elice) hw key"
+	depends on CPU_S3C6410
+	help
+	  ebook(elice) hw key
 endif

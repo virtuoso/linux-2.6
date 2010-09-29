@@ -19,6 +19,11 @@ static dev_t rtc_devt;
 
 #define RTC_DEV_MAX 16 /* 16 RTCs should be enough for everyone... */
 
+/* Added by woong */		
+extern unsigned int get_cur_rtc_tickcount(void);
+#define RTC_TICK_RD _IOR('p', 0x20, unsigned int)
+/* end */
+
 static int rtc_dev_open(struct inode *inode, struct file *file)
 {
 	int err;
@@ -39,7 +44,6 @@ static int rtc_dev_open(struct inode *inode, struct file *file)
 
 		return 0;
 	}
-
 	/* something has gone wrong */
 	clear_bit_unlock(RTC_DEV_BUSY, &rtc->flags);
 	return err;
@@ -412,6 +416,15 @@ static long rtc_dev_ioctl(struct file *file,
 		err = set_uie(rtc);
 		return err;
 #endif
+	/* Added by woong */		
+	case RTC_TICK_RD:
+		{
+		unsigned int curTick;
+		mutex_unlock(&rtc->ops_lock);
+		curTick = get_cur_rtc_tickcount();
+		err = put_user(curTick, (unsigned int __user *)uarg);
+		return err;
+		}
 	default:
 		err = -ENOTTY;
 		break;

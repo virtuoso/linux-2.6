@@ -116,6 +116,7 @@ struct ktermios tty_std_termios = {	/* for the benefit of tty drivers  */
 	.c_iflag = ICRNL | IXON,
 	.c_oflag = OPOST | ONLCR,
 	.c_cflag = B38400 | CS8 | CREAD | HUPCL,
+
 	.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK |
 		   ECHOCTL | ECHOKE | IEXTEN,
 	.c_cc = INIT_C_CC,
@@ -949,10 +950,17 @@ static ssize_t tty_read(struct file *file, char __user *buf, size_t count,
 
 	tty = (struct tty_struct *)file->private_data;
 	inode = file->f_path.dentry->d_inode;
+
 	if (tty_paranoia_check(tty, inode, "tty_read"))
+	{
 		return -EIO;
+	}
+
 	if (!tty || (test_bit(TTY_IO_ERROR, &tty->flags)))
+	{
 		return -EIO;
+	}
+
 
 	/* We want to wait for the line discipline to sort out in this
 	   situation */
@@ -961,9 +969,22 @@ static ssize_t tty_read(struct file *file, char __user *buf, size_t count,
 		i = (ld->ops->read)(tty, file, buf, count);
 	else
 		i = -EIO;
+
 	tty_ldisc_deref(ld);
 	if (i > 0)
 		inode->i_atime = current_fs_time(inode->i_sb);
+
+	//janged 
+	// 입력 있으면 클럭 안내려 가게 하려고
+	// 이제 필요 없다. 091123
+	//
+	#if 0
+	if(i>0)
+	{
+		change_clock_fortty(6);
+	}
+	#endif
+
 	return i;
 }
 

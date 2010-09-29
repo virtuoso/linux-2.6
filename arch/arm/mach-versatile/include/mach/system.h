@@ -37,7 +37,9 @@ static inline void arch_idle(void)
 static inline void arch_reset(char mode)
 {
 	u32 val;
-
+	//janged add for debug
+	printk("F%s, L%d \n", __FUNCTION__, __LINE__);
+	mdelay(1000);
 	val = __raw_readl(IO_ADDRESS(VERSATILE_SYS_RESETCTL)) & ~0x7;
 	val |= 0x105;
 

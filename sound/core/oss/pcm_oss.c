@@ -2620,7 +2620,9 @@ static ssize_t snd_pcm_oss_read(struct file *file, char __user *buf, size_t coun
 	pcm_oss_file = file->private_data;
 	substream = pcm_oss_file->streams[SNDRV_PCM_STREAM_CAPTURE];
 	if (substream == NULL)
+	{
 		return -ENXIO;
+	}
 	substream->f_flags = file->f_flags & O_NONBLOCK;
 #ifndef OSS_DEBUG
 	return snd_pcm_oss_read1(substream, buf, count);
@@ -2642,8 +2644,11 @@ static ssize_t snd_pcm_oss_write(struct file *file, const char __user *buf, size
 	pcm_oss_file = file->private_data;
 	substream = pcm_oss_file->streams[SNDRV_PCM_STREAM_PLAYBACK];
 	if (substream == NULL)
+	{
 		return -ENXIO;
+	}
 	substream->f_flags = file->f_flags & O_NONBLOCK;
+
 	result = snd_pcm_oss_write1(substream, buf, count);
 #ifdef OSS_DEBUG
 	printk("pcm_oss: write %li bytes (wrote %li bytes)\n", (long)count, (long)result);

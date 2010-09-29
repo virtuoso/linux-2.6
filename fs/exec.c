@@ -102,7 +102,7 @@ static inline void put_binfmt(struct linux_binfmt * fmt)
  *
  * Also note that we take the address to load from from the file itself.
  */
-asmlinkage long sys_uselib(const char __user * library)
+SYSCALL_DEFINE1(uselib, const char __user *, library)
 {
 	struct file *file;
 	struct nameidata nd;
@@ -1273,6 +1273,7 @@ void free_bprm(struct linux_binprm *bprm)
 	kfree(bprm);
 }
 
+
 /*
  * sys_execve() executes a new program.
  */
@@ -1296,10 +1297,13 @@ int do_execve(char * filename,
 		goto out_files;
 
 	file = open_exec(filename);
+	
 	retval = PTR_ERR(file);
 	if (IS_ERR(file))
+	{
 		goto out_kfree;
-
+	}
+	
 	sched_exec();
 
 	bprm->file = file;
@@ -1348,9 +1352,9 @@ int do_execve(char * filename,
 		free_bprm(bprm);
 		if (displaced)
 			put_files_struct(displaced);
+
 		return retval;
 	}
-
 out:
 	if (bprm->security)
 		security_bprm_free(bprm);
@@ -1370,6 +1374,7 @@ out_kfree:
 out_files:
 	if (displaced)
 		reset_files_struct(displaced);
+
 out_ret:
 	return retval;
 }

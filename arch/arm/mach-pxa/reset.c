@@ -84,7 +84,6 @@ static void do_hw_reset(void)
 void arch_reset(char mode)
 {
 	clear_reset_status(RESET_STATUS_ALL);
-
 	switch (mode) {
 	case 's':
 		/* Jump into ROM at address 0 */

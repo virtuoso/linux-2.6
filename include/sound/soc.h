@@ -356,6 +356,7 @@ struct snd_soc_dai_ops {
 		unsigned int mask, int slots);
 	int (*set_tristate)(struct snd_soc_dai *dai, int tristate);
 
+
 	/* digital mute */
 	int (*digital_mute)(struct snd_soc_dai *dai, int mute);
 };
@@ -405,7 +406,7 @@ struct snd_soc_codec {
 	/* callbacks */
 	int (*set_bias_level)(struct snd_soc_codec *,
 			      enum snd_soc_bias_level level);
-
+ 
 	/* runtime */
 	struct snd_card *card;
 	struct snd_ac97 *ac97;  /* for ad-hoc ac97 devices */
@@ -430,6 +431,8 @@ struct snd_soc_codec {
 	struct list_head dapm_paths;
 	enum snd_soc_bias_level bias_level;
 	enum snd_soc_bias_level suspend_bias_level;
+        unsigned int dapm_state;
+	unsigned int suspend_dapm_state;
 	struct delayed_work delayed_work;
 
 	/* codec DAI's */

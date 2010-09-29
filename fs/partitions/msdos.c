@@ -412,7 +412,11 @@ static struct {
 	{NEW_SOLARIS_X86_PARTITION, parse_solaris_x86},
 	{0, NULL},
 };
- 
+
+int janged_mmc_partition_num = 0;
+EXPORT_SYMBOL(janged_mmc_partition_num);
+extern int sd_mmc_status_update;
+
 int msdos_partition(struct parsed_partitions *state, struct block_device *bdev)
 {
 	int sector_size = bdev_hardsect_size(bdev) / 512;
@@ -422,6 +426,7 @@ int msdos_partition(struct parsed_partitions *state, struct block_device *bdev)
 	struct fat_boot_sector *fb;
 	int slot;
 
+	janged_mmc_partition_num = 0;
 	data = read_dev_sector(bdev, 0, &sect);
 	if (!data)
 		return -1;
@@ -435,7 +440,6 @@ int msdos_partition(struct parsed_partitions *state, struct block_device *bdev)
 		printk( " [AIX]");
 		return 0;
 	}
-
 	/*
 	 * Now that the 55aa signature is present, this is probably
 	 * either the boot sector of a FAT filesystem or a DOS-type
@@ -462,7 +466,6 @@ int msdos_partition(struct parsed_partitions *state, struct block_device *bdev)
 			}
 		}
 	}
-
 #ifdef CONFIG_EFI_PARTITION
 	p = (struct partition *) (data + 0x1be);
 	for (slot = 1 ; slot <= 4 ; slot++, p++) {
@@ -474,7 +477,6 @@ int msdos_partition(struct parsed_partitions *state, struct block_device *bdev)
 	}
 #endif
 	p = (struct partition *) (data + 0x1be);
-
 	/*
 	 * Look for partitions in two passes:
 	 * First find the primary and DOS-type extended partitions.
@@ -487,6 +489,7 @@ int msdos_partition(struct parsed_partitions *state, struct block_device *bdev)
 		u32 size = NR_SECTS(p)*sector_size;
 		if (!size)
 			continue;
+
 		if (is_extended_partition(p)) {
 			/* prevent someone doing mkfs or mkswap on an
 			   extended partition, but leave room for LILO */
@@ -497,6 +500,10 @@ int msdos_partition(struct parsed_partitions *state, struct block_device *bdev)
 			continue;
 		}
 		put_partition(state, slot, start, size);
+		//janged add start
+		//맵피용으로 제작된 SD 인식 못하는 문제 관련 
+		janged_mmc_partition_num = slot;
+		//janged add end
 		if (SYS_IND(p) == LINUX_RAID_PARTITION)
 			state->parts[slot].flags = 1;
 		if (SYS_IND(p) == DM6_PARTITION)
@@ -504,7 +511,6 @@ int msdos_partition(struct parsed_partitions *state, struct block_device *bdev)
 		if (SYS_IND(p) == EZD_PARTITION)
 			printk("[EZD]");
 	}
-
 	printk("\n");
 
 	/* second pass - output for each on a separate line */

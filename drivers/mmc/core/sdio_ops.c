@@ -39,7 +39,9 @@ int mmc_send_io_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 
 		/* if we're just probing, do a single pass */
 		if (ocr == 0)
+		{
 			break;
+		}
 
 		/* otherwise wait until reset completes */
 		if (mmc_host_is_spi(host)) {
@@ -50,14 +52,17 @@ int mmc_send_io_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 			 * one.
 			 */
 			if (cmd.resp[1] & MMC_CARD_BUSY)
+			{
 				break;
+			}
 		} else {
 			if (cmd.resp[0] & MMC_CARD_BUSY)
+			{
 				break;
+			}
 		}
 
 		err = -ETIMEDOUT;
-
 		mmc_delay(10);
 	}
 

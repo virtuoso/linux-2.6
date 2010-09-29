@@ -1379,8 +1379,15 @@ int input_register_device(struct input_dev *dev)
 	if (!dev->rep[REP_DELAY] && !dev->rep[REP_PERIOD]) {
 		dev->timer.data = (long) dev;
 		dev->timer.function = input_repeat_key;
+
+/* woong : 250ms long key check delete	*/	
+#if 0		
 		dev->rep[REP_DELAY] = 250;
 		dev->rep[REP_PERIOD] = 33;
+#else
+		dev->rep[REP_DELAY] = 36;
+		dev->rep[REP_PERIOD] = 33;	
+#endif
 	}
 
 	if (!dev->getkeycode)

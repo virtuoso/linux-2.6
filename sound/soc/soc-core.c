@@ -361,6 +361,7 @@ static int soc_codec_close(struct snd_pcm_substream *substream)
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		/* start delayed pop wq here for playback streams */
 		codec_dai->pop_wait = 1;
+//		codec_dai->pop_wait = 0;		//janged
 		schedule_delayed_work(&socdev->delayed_work,
 			msecs_to_jiffies(pmdown_time));
 	} else {
@@ -430,6 +431,8 @@ static int soc_pcm_prepare(struct snd_pcm_substream *substream)
 
 	/* we only want to start a DAPM playback stream if we are not waiting
 	 * on an existing one stopping */
+	//#if !defined(CONFIG_SND_SMDKC100_WM9713) && !defined(CONFIG_SND_SOC_WM8731)
+	#if !defined(CONFIG_SND_SMDKC100_WM9713)
 	if (codec_dai->pop_wait) {
 		/* we are waiting for the delayed work to start */
 		if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
@@ -474,6 +477,7 @@ static int soc_pcm_prepare(struct snd_pcm_substream *substream)
 			snd_soc_dai_digital_mute(codec_dai, 0);
 		}
 	}
+#endif
 
 out:
 	mutex_unlock(&pcm_mutex);
@@ -922,6 +926,7 @@ static int soc_new_pcm(struct snd_soc_device *socdev,
 	if (codec_dai->capture.channels_min)
 		capture = 1;
 
+printk("playback: %d, capture : %d\n",playback,capture);
 	ret = snd_pcm_new(codec->card, new_name, codec->pcm_devs++, playback,
 		capture, &pcm);
 	if (ret < 0) {

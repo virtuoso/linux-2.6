@@ -591,10 +591,9 @@ static int __init pm_init(void)
 core_initcall(pm_init);
 
 
-#ifdef CONFIG_PM_TEST_SUSPEND
-
+//#ifdef CONFIG_PM_TEST_SUSPEND
 #include <linux/rtc.h>
-
+#if 0
 /*
  * To test system suspend, we need a hands-off mechanism to resume the
  * system.  RTCs wake alarms are a common self-contained mechanism.
@@ -728,5 +727,357 @@ done:
 	return 0;
 }
 late_initcall(test_suspend);
+/* Added by woong */
+static void do_sleep(suspend_state_t state)
+{
+	static char err_suspend[] __initdata =
+		KERN_ERR "PM: suspend test failed, error %d\n";
+	static char info_test[] __initdata =
+		KERN_INFO "PM: sleep test wakeup from '%s' suspend\n";
+	int			status;
 
-#endif /* CONFIG_PM_TEST_SUSPEND */
+	if (state == PM_SUSPEND_MEM) 
+	{
+		printk(info_test, pm_states[state]);
+		status = pm_suspend(state);
+		if (status == -ENODEV)
+			state = PM_SUSPEND_STANDBY;
+	}
+	
+	if (status < 0)
+		printk(err_suspend, status);
+}
+
+int pm_enter_sleep_mode(int cur_mode)
+{
+	test_state = cur_mode;
+	
+	if (test_state == PM_SUSPEND_ON)
+		goto done;
+	if (!valid_state(test_state)) {
+		printk(warn_bad_state, pm_states[test_state]);
+		goto done;
+	}
+
+	do_sleep(test_state);
+done:
+	return 0;
+}
+#else
+#define POWEROFF_TIME_23	(60 * 60 * 23) //(23시간)
+#define POWEROFF_TIME_14	(60 * 60 * 14) //(15시간)
+#define POWEROFF_TIME_12	(60 * 60 * 12) //(12시간)
+#define POWEROFF_TIME_6		(60 * 60 * 6) //(6시간)
+#define POWEROFF_TIME_3		(60 * 60 * 3) //(3시간)
+#define MAX_SLEEP_TIME		(60 * 60 * 1) //(1시간))
+
+#define ADC_MARGINE			0x10
+#define BATT_LEVEL_LOW		0x2e6 + ADC_MARGINE   //cut off 
+#define BATT_LEVEL_BLANK 	0x308
+#define BATT_LEVEL_1		0x325  //1칸
+#define BATT_LEVEL_2 		0x348  //2칸
+#define BATT_LEVEL_FULL 	0x36a  //3칸
+	
+#define LEVEL_3			3
+#define LEVEL_2			2
+#define LEVEL_1			1
+#define LEVEL_BLANK 	0
+#define LEVEL_LOW		99
+#define SEC_1			(1 * 1)
+#define SEC_5			(5 * 1)
+#define SEC_10			(10 * 1)
+#define SEC_30			(30 * 1)
+#define MIN_1			(60 * 1)
+#define MIN_2			(60 * 2)
+#define MIN_3			(60 * 3)
+#define MIN_5			(60 * 5)
+#define MIN_6			(60 * 6)
+#define MIN_10			(60 * 10)
+#define MIN_15			(60 * 15)
+#define MIN_20			(60 * 20)
+#define MIN_30			(60 * 30)
+#define MIN_60			(60 * 60)
+
+static suspend_state_t test_state = PM_SUSPEND_ON;
+static unsigned char curSleepState = 0;
+static int powerOffTime = POWEROFF_TIME_14;
+static unsigned char lowBatteryState = 0;
+extern unsigned char get_cur_epd_mode(void);
+extern void set_cur_sleep_times(int way);
+extern int get_cur_sleep_times(void);
+extern unsigned int get_cur_battery_adc_value(void);
+extern void wm8731_poweroff(void);
+unsigned char get_system_is_sleep_mode(void);
+
+//#define SLEEP_TEST 1
+
+int get_poweroff_time(void)
+{
+	return powerOffTime;
+}
+
+void set_poweroff_time(int time)
+{
+	if (time > 24)
+		time = 15;
+	else if (time <= 0)
+		time = 3;
+
+	time --;
+	powerOffTime = time * 60 * 60;
+	printk("[Kernel] setted poweroff time to powerOffTime %d", powerOffTime);
+}
+EXPORT_SYMBOL(set_poweroff_time);
+
+unsigned char get_system_is_sleep_mode(void)
+{
+	return curSleepState;
+}
+
+void set_system_is_sleep_mode(unsigned char state)
+{
+	curSleepState = state;
+}
+
+unsigned char get_battery_state_with_sleep(void)
+{
+	return lowBatteryState;
+}
+
+static int get_wakealarm(struct device *dev, void *name_ptr)
+{
+	struct rtc_device *candidate = to_rtc_device(dev);
+
+	if (!candidate->ops->set_alarm)
+		return 0;
+	if (!device_may_wakeup(candidate->dev.parent))
+		return 0;
+
+	*(char **)name_ptr = dev->bus_id;
+	return 1;
+}
+
+void set_alarm_for_poweroff(struct rtc_device *rtc, suspend_state_t state, int times)
+{
+	unsigned long		now, poweroff=0, wakeupTime, enteredTime=0;
+	struct rtc_wkalrm	alm;
+	int					status;
+	unsigned int curADCValue;
+	char times0InitFlag = 1;
+	char times1InitFlag = 1;
+	char gointoStepTwo = 0;
+	char gointoStepPowerOff = 0;
+	int loopTime = 0;
+	int exitCount = 0;
+
+reEnterSleepMode:
+
+	exitCount = 0;
+	while(1)
+	{
+		if (get_cur_epd_mode() == 1)
+			break;
+
+		exitCount ++;
+		if (exitCount >= 1000)
+			break;
+		
+		//여기서 빠지지 않으면 대박 버그~~~~~~~
+		msleep(10);
+		printk("[k : %s] EPD is not sleep mode !! \n",__FUNCTION__); 
+	}
+
+	status = rtc_read_time(rtc, &alm.time);
+	if (status < 0) {
+		printk("PM: can't read %s time, err %d\n", rtc->dev.bus_id, status);
+		return;
+	}
+	rtc_tm_to_time(&alm.time, &now);
+
+	memset(&alm, 0, sizeof alm);
+	
+	//여기서 현재의 ADC값을 읽어서 남은 시간을 계산해야 한다.
+	if (times == 0)
+	{
+		if (times0InitFlag)
+		{
+			enteredTime = now;
+			times0InitFlag = 0;
+		}
+
+		curADCValue = get_cur_battery_adc_value();
+		if (curADCValue <= BATT_LEVEL_LOW+0x4)
+		{
+			poweroff = SEC_10;
+			gointoStepTwo = 1;
+		}
+		else if (curADCValue < BATT_LEVEL_BLANK + 0x4 && curADCValue >= BATT_LEVEL_LOW + 0x4)
+		{
+			poweroff = MIN_6;
+		}
+		else
+			poweroff = MIN_15; 
+
+#ifdef SLEEP_TEST
+		poweroff = 20; 
+		if (now - enteredTime >= MIN_1)
+		{
+			poweroff = SEC_5; 
+			gointoStepTwo = 1;
+		}
+#else
+		if (now - enteredTime >= MAX_SLEEP_TIME) 
+		{
+			poweroff = SEC_5; 
+			gointoStepTwo = 1;
+		}
+#endif
+				
+		loopTime ++;
+		printk("\n###### PM: Sleep Timer step1 ADC=0x%x loopCount=%d #######\n", curADCValue, loopTime);
+	}
+	else if (times == 1)
+	{
+		if (times1InitFlag)
+		{
+			enteredTime = now;
+			times1InitFlag = 0;
+		}
+
+		lowBatteryState = 0;
+		curADCValue = get_cur_battery_adc_value();
+		if (curADCValue <= BATT_LEVEL_LOW+0x5)
+		{
+			poweroff = SEC_5;
+			gointoStepPowerOff = 1;
+			lowBatteryState = 1;
+		}
+		else if (curADCValue < BATT_LEVEL_BLANK + 0x5 && curADCValue >= BATT_LEVEL_LOW + 0x5)
+		{
+			poweroff = MIN_6;
+		}
+		else if (curADCValue < BATT_LEVEL_1 && curADCValue >= BATT_LEVEL_BLANK + 0x5)
+		{
+			poweroff = MIN_20;
+		}
+		else 
+		{
+			poweroff = MIN_30; 
+		}
+
+#ifdef SLEEP_TEST
+		poweroff = 20; 
+		//10분이 지났으니깐 하얀 화면 뿌려주는 다음 스텝으로 진행시킨다. 
+		if (now - enteredTime >= MIN_1)
+		{
+			poweroff = 1; 
+			gointoStepPowerOff = 1;
+		}
+#else
+		if (now - enteredTime >= get_poweroff_time()) 
+		{
+			poweroff = SEC_5;
+			gointoStepPowerOff = 1;
+		}
+#endif
+		loopTime ++;
+		printk("\n##### PM: Sleep Timer step2 ADC=0x%x loopCount=%d #####\n", curADCValue, loopTime);
+	}
+
+	wakeupTime = now + poweroff;
+	rtc_time_to_tm(now + poweroff, &alm.time);
+	alm.enabled = true;
+
+	status = rtc_set_alarm(rtc, &alm);
+	if (status < 0) {
+		printk("PM: can't set %s wakealarm, err %d\n", rtc->dev.bus_id, status);
+		return;
+	}
+
+	//여기서 codec power를 off해야한다...
+	wm8731_poweroff();
+
+	if (state == PM_SUSPEND_MEM) 
+	{
+		status = pm_suspend(state);
+		if (status == -ENODEV)
+			state = PM_SUSPEND_STANDBY;
+	}
+
+	if (status < 0)
+		printk("PM: suspend failed, error %d\n", status);
+
+	rtc_read_time(rtc, &alm.time);
+	rtc_tm_to_time(&alm.time, &now);
+	if (wakeupTime <= now + 1)
+	{
+		//alarm으로 깨어난 상태
+		if (get_cur_sleep_times() == 1 && times == 1)
+		{
+			if (!gointoStepPowerOff)
+			{
+				goto reEnterSleepMode;
+			}
+
+			//Power Off Sequence를 타야 한다.
+			set_cur_sleep_times(2);
+		}	
+		else
+		{
+			if (get_cur_sleep_times() == 1 && times == 0)
+				printk("##################### PM: Sleep Timer Error !!!!!!!!!!! ####################\n");
+			
+			if (!gointoStepTwo)
+			{
+				goto reEnterSleepMode;
+			}
+			set_cur_sleep_times(1);
+		}
+	}
+	else
+	{
+		set_cur_sleep_times(0);
+	}
+
+	printk("\nPM: wakeup ok!! wakeupTime %ld : now %ld\n", wakeupTime, now);
+	alm.enabled = false;
+	rtc_set_alarm(rtc, &alm);
+}
+
+int pm_enter_sleep_mode(int cur_mode, int times)
+{
+	char				*pony = NULL;
+	struct rtc_device	*rtc = NULL;
+	
+	set_system_is_sleep_mode(1);
+	mdelay(200);
+
+	test_state = cur_mode;
+	
+	//RTC관련 작업을 해준다.
+	class_find_device(rtc_class, NULL, &pony, get_wakealarm);
+	if (pony)
+		rtc = rtc_class_open(pony);
+	if (!rtc) 
+	{
+		printk("You need to enable RTC function for sleep\n");
+		goto done;
+	}
+
+#if 0
+	do_sleep(test_state);
+#else
+	set_alarm_for_poweroff(rtc, test_state, times);
+	rtc_class_close(rtc);
+	set_system_is_sleep_mode(0);
+#endif
+done:
+	return 0;
+}
+
+#endif
+EXPORT_SYMBOL(pm_enter_sleep_mode);
+/* end */
+
+
+//#endif /* CONFIG_PM_TEST_SUSPEND */

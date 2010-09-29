@@ -8,6 +8,12 @@
 #include <linux/sched.h>
 #include <linux/freezer.h>
 
+//janged add start
+#include <mach/map.h>
+#include <plat/regs-clock.h>
+#include <asm/io.h>
+//janged add end
+
 #include "do_mounts.h"
 
 unsigned long initrd_start, initrd_end;
@@ -110,8 +116,49 @@ static void __init handle_initrd(void)
 
 int __init initrd_load(void)
 {
+	//janged add
+	dev_t dev;
+	int in_fd, out_fd, tmp;
+	char * buf = NULL;
 	if (mount_initrd) {
 		create_dev("/dev/ram", Root_RAM0);
+		//janged add start
+		//ramfile system loading - MOVI Booting 일 경우만 지원 
+	        // tmp
+	        // 0 : MOVI Booting
+	        // 7 : SD Booting
+
+	    #if 1
+        	tmp = __raw_readl(S3C_INFORM3);
+		if(tmp == 0)
+		{
+			printk("Loading Ramdisk From mmcblk0p3 \n");
+			dev = MKDEV(MMC_BLOCK_MAJOR, 3);
+			create_dev("/dev/mmcblk0p3", dev);
+
+			in_fd = sys_open("/dev/mmcblk0p3", O_RDONLY, 0);
+			if (in_fd < 0)
+			{
+				printk("/dev/mmcblk0p3 open error \n");
+			}
+
+			buf = kmalloc(5 * 1024 * 1024, GFP_KERNEL);
+			sys_read(in_fd, buf, 5 * 1024 * 1024);
+			sys_close(in_fd);
+			out_fd = sys_open("/initrd.image", O_RDWR, 0);
+			if (out_fd < 0)
+			{
+				printk("/initrd.image open error \n");
+			}
+			sys_write(out_fd, buf, 5 * 1024 * 1024);
+			sys_close(out_fd);
+
+			kfree(buf);
+		}
+		#endif
+		//jnaged end
+		//printk("janged test +++++++++++++++++++++++++\n");
+
 		/*
 		 * Load the initrd data into /dev/ram0. Execute it as initrd
 		 * unless /dev/ram0 is supposed to be our actual root device,

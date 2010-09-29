@@ -48,9 +48,7 @@ static int rtc_suspend(struct device *dev, pm_message_t mesg)
 	struct rtc_time		tm;
 	struct timespec		ts = current_kernel_time();
 
-	if (strncmp(rtc->dev.bus_id,
-				CONFIG_RTC_HCTOSYS_DEVICE,
-				BUS_ID_SIZE) != 0)
+	if (strncmp(rtc->dev.bus_id, CONFIG_RTC_HCTOSYS_DEVICE, BUS_ID_SIZE) != 0)
 		return 0;
 
 	rtc_read_time(rtc, &tm);

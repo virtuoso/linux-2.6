@@ -6,6 +6,7 @@
 #
 
 obj-y				+= gpio/
+obj-y				+= elice/
 obj-$(CONFIG_PCI)		+= pci/
 obj-$(CONFIG_PARISC)		+= parisc/
 obj-$(CONFIG_RAPIDIO)		+= rapidio/

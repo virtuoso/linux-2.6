@@ -142,6 +142,10 @@ static int corgi_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
+	ret = snd_soc_dai_set_sysclk(cpu_dai, S5P6440_CDCLKSRC_INT, params_rate(params), SND_SOC_CLOCK_OUT);
+	if (ret < 0)
+		return ret;
+
 	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
 		SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBS_CFS);

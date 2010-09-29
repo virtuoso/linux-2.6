@@ -162,16 +162,22 @@ int mmc_send_app_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 		cmd.arg = ocr & (1 << 30); /* SPI only defines one bit */
 	else
 		cmd.arg = ocr;
+		
 	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R3 | MMC_CMD_BCR;
 
 	for (i = 100; i; i--) {
 		err = mmc_wait_for_app_cmd(host, NULL, &cmd, MMC_CMD_RETRIES);
 		if (err)
+		{
+			printk("%s, %d ********\n", __FUNCTION__, __LINE__);
 			break;
+		}
 
 		/* if we're just probing, do a single pass */
 		if (ocr == 0)
+		{
 			break;
+		}
 
 		/* otherwise wait until reset completes */
 		if (mmc_host_is_spi(host)) {
@@ -190,6 +196,10 @@ int mmc_send_app_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 	if (rocr && !mmc_host_is_spi(host))
 		*rocr = cmd.resp[0];
 
+	if (err == -ETIMEDOUT)
+	{
+		printk("################## Retry !!!!\n");
+	}
 	return err;
 }
 

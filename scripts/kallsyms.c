@@ -66,12 +66,14 @@ static int read_symbol(FILE *in, struct sym_entry *s)
 	char str[500];
 	char *sym, stype;
 	int rc;
+	//janged
+	char * ret;
 
 	rc = fscanf(in, "%llx %c %499s\n", &s->addr, &stype, str);
 	if (rc != 3) {
 		if (rc != EOF) {
 			/* skip line */
-			fgets(str, 500, in);
+			ret = fgets(str, 500, in);		//janged add ret
 		}
 		return -1;
 	}

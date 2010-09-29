@@ -29,6 +29,7 @@ const struct file_operations generic_ro_fops = {
 	.splice_read	= generic_file_splice_read,
 };
 
+
 EXPORT_SYMBOL(generic_ro_fops);
 
 /**
@@ -124,6 +125,7 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int origin)
 {
 	loff_t (*fn)(struct file *, loff_t, int);
 
+	
 	fn = no_llseek;
 	if (file->f_mode & FMODE_LSEEK) {
 		fn = default_llseek;
@@ -134,7 +136,7 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int origin)
 }
 EXPORT_SYMBOL(vfs_llseek);
 
-asmlinkage off_t sys_lseek(unsigned int fd, off_t offset, unsigned int origin)
+SYSCALL_DEFINE3(lseek, unsigned int, fd, off_t, offset, unsigned int, origin)
 {
 	off_t retval;
 	struct file * file;
@@ -158,9 +160,9 @@ bad:
 }
 
 #ifdef __ARCH_WANT_SYS_LLSEEK
-asmlinkage long sys_llseek(unsigned int fd, unsigned long offset_high,
-			   unsigned long offset_low, loff_t __user * result,
-			   unsigned int origin)
+SYSCALL_DEFINE5(llseek, unsigned int, fd, unsigned long, offset_high,
+		unsigned long, offset_low, loff_t __user *, result,
+		unsigned int, origin)
 {
 	int retval;
 	struct file * file;
@@ -265,12 +267,14 @@ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 {
 	ssize_t ret;
 
+
 	if (!(file->f_mode & FMODE_READ))
 		return -EBADF;
 	if (!file->f_op || (!file->f_op->read && !file->f_op->aio_read))
 		return -EINVAL;
 	if (unlikely(!access_ok(VERIFY_WRITE, buf, count)))
 		return -EFAULT;
+
 
 	ret = rw_verify_area(READ, file, pos, count);
 	if (ret >= 0) {
@@ -279,12 +283,15 @@ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 			ret = file->f_op->read(file, buf, count, pos);
 		else
 			ret = do_sync_read(file, buf, count, pos);
+
 		if (ret > 0) {
 			fsnotify_access(file->f_path.dentry);
 			add_rchar(current, ret);
 		}
+
 		inc_syscr(current);
 	}
+
 
 	return ret;
 }
@@ -356,7 +363,7 @@ static inline void file_pos_write(struct file *file, loff_t pos)
 	file->f_pos = pos;
 }
 
-asmlinkage ssize_t sys_read(unsigned int fd, char __user * buf, size_t count)
+SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 {
 	struct file *file;
 	ssize_t ret = -EBADF;
@@ -373,7 +380,8 @@ asmlinkage ssize_t sys_read(unsigned int fd, char __user * buf, size_t count)
 	return ret;
 }
 
-asmlinkage ssize_t sys_write(unsigned int fd, const char __user * buf, size_t count)
+SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
+		size_t, count)
 {
 	struct file *file;
 	ssize_t ret = -EBADF;
@@ -390,8 +398,8 @@ asmlinkage ssize_t sys_write(unsigned int fd, const char __user * buf, size_t co
 	return ret;
 }
 
-asmlinkage ssize_t sys_pread64(unsigned int fd, char __user *buf,
-			     size_t count, loff_t pos)
+SYSCALL_DEFINE(pread64)(unsigned int fd, char __user *buf,
+			size_t count, loff_t pos)
 {
 	struct file *file;
 	ssize_t ret = -EBADF;
@@ -410,9 +418,17 @@ asmlinkage ssize_t sys_pread64(unsigned int fd, char __user *buf,
 
 	return ret;
 }
+#ifdef CONFIG_HAVE_SYSCALL_WRAPPERS
+asmlinkage long SyS_pread64(long fd, long buf, long count, loff_t pos)
+{
+	return SYSC_pread64((unsigned int) fd, (char __user *) buf,
+			    (size_t) count, pos);
+}
+SYSCALL_ALIAS(sys_pread64, SyS_pread64);
+#endif
 
-asmlinkage ssize_t sys_pwrite64(unsigned int fd, const char __user *buf,
-			      size_t count, loff_t pos)
+SYSCALL_DEFINE(pwrite64)(unsigned int fd, const char __user *buf,
+			 size_t count, loff_t pos)
 {
 	struct file *file;
 	ssize_t ret = -EBADF;
@@ -431,6 +447,14 @@ asmlinkage ssize_t sys_pwrite64(unsigned int fd, const char __user *buf,
 
 	return ret;
 }
+#ifdef CONFIG_HAVE_SYSCALL_WRAPPERS
+asmlinkage long SyS_pwrite64(long fd, long buf, long count, loff_t pos)
+{
+	return SYSC_pwrite64((unsigned int) fd, (const char __user *) buf,
+			     (size_t) count, pos);
+}
+SYSCALL_ALIAS(sys_pwrite64, SyS_pwrite64);
+#endif
 
 /*
  * Reduce an iovec's length in-place.  Return the resulting number of segments
@@ -659,8 +683,8 @@ ssize_t vfs_writev(struct file *file, const struct iovec __user *vec,
 
 EXPORT_SYMBOL(vfs_writev);
 
-asmlinkage ssize_t
-sys_readv(unsigned long fd, const struct iovec __user *vec, unsigned long vlen)
+SYSCALL_DEFINE3(readv, unsigned long, fd, const struct iovec __user *, vec,
+		unsigned long, vlen)
 {
 	struct file *file;
 	ssize_t ret = -EBADF;
@@ -680,8 +704,8 @@ sys_readv(unsigned long fd, const struct iovec __user *vec, unsigned long vlen)
 	return ret;
 }
 
-asmlinkage ssize_t
-sys_writev(unsigned long fd, const struct iovec __user *vec, unsigned long vlen)
+SYSCALL_DEFINE3(writev, unsigned long, fd, const struct iovec __user *, vec,
+		unsigned long, vlen)
 {
 	struct file *file;
 	ssize_t ret = -EBADF;
@@ -799,7 +823,7 @@ out:
 	return retval;
 }
 
-asmlinkage ssize_t sys_sendfile(int out_fd, int in_fd, off_t __user *offset, size_t count)
+SYSCALL_DEFINE4(sendfile, int, out_fd, int, in_fd, off_t __user *, offset, size_t, count)
 {
 	loff_t pos;
 	off_t off;
@@ -818,7 +842,7 @@ asmlinkage ssize_t sys_sendfile(int out_fd, int in_fd, off_t __user *offset, siz
 	return do_sendfile(out_fd, in_fd, NULL, count, 0);
 }
 
-asmlinkage ssize_t sys_sendfile64(int out_fd, int in_fd, loff_t __user *offset, size_t count)
+SYSCALL_DEFINE4(sendfile64, int, out_fd, int, in_fd, loff_t __user *, offset, size_t, count)
 {
 	loff_t pos;
 	ssize_t ret;

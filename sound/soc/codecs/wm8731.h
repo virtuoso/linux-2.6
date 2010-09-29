@@ -33,6 +33,7 @@
 
 #define WM8731_SYSCLK	0
 #define WM8731_DAI		0
+#define WM8731_BCLK   	2
 
 struct wm8731_setup_data {
 	int            spi;

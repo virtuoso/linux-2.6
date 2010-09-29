@@ -977,6 +977,23 @@ config SMC911X
 	  This driver is also available as a module. The module will be 
 	  called smc911x.  If you want to compile it as a module, say M 
 	  here and read <file:Documentation/kbuild/modules.txt>
+#janged add start
+config SMC921X
+	tristate "SMSC LAN9217 support"
+	select CRC32
+	select MII
+	depends on ARCH_PXA || SH_MAGIC_PANEL_R2 || MACH_SMDK6410 || MACH_SMDK2450 || MACH_SMDK2416 || MACH_SMDK6430
+	help
+	  This is a driver for SMSC's LAN9217 Ethernet chipsets
+	  Say Y if you want it compiled into the kernel, 
+	  and read the Ethernet-HOWTO, available from
+	  <http://www.linuxdoc.org/docs.html#howto>.
+
+	  This driver is also available as a module. The module will be 
+	  called smc9217.  If you want to compile it as a module, say M 
+	  here and read <file:Documentation/kbuild/modules.txt>
+
+#janged add end
 
 config NET_VENDOR_RACAL
 	bool "Racal-Interlan (Micom) NI cards"

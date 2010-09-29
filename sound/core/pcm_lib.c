@@ -163,6 +163,7 @@ static inline int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream
 					     struct snd_pcm_runtime *runtime)
 {
 	snd_pcm_uframes_t avail;
+	int size_comp;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		avail = snd_pcm_playback_avail(runtime);
@@ -170,6 +171,15 @@ static inline int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream
 		avail = snd_pcm_capture_avail(runtime);
 	if (avail > runtime->avail_max)
 		runtime->avail_max = avail;
+
+	if((runtime->buffer_size % 2) == 1) 
+		size_comp = (runtime->control->appl_ptr % (runtime->buffer_size-1));
+	else 
+		size_comp = (runtime->control->appl_ptr % runtime->buffer_size);
+
+	if(size_comp != 0 && runtime->control->appl_ptr > runtime->buffer_size)
+		avail += runtime->period_size - (runtime->status->hw_ptr % runtime->period_size); 
+
 	if (avail >= runtime->stop_threshold) {
 		if (substream->runtime->status->state == SNDRV_PCM_STATE_DRAINING)
 			snd_pcm_drain_done(substream);

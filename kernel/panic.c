@@ -22,6 +22,12 @@
 #include <linux/random.h>
 #include <linux/kallsyms.h>
 
+//janged start
+#include <mach/hardware.h>
+#include <mach/map.h>
+#include <asm/io.h>
+//janged end
+
 int panic_on_oops;
 static unsigned long tainted_mask;
 static int pause_on_oops;
@@ -82,6 +88,16 @@ NORET_TYPE void panic(const char * fmt, ...)
 	 */
 	crash_kexec(NULL);
 
+
+	//janged test 걍 restart 시킨다.
+	#if 0	//불필요 echo 1 > /proc/sys/kerenl/panic 으로 대체
+	{
+        u32 reg;
+        reg = (u32) ioremap((unsigned long) S3C64XX_PA_SYSCON, SZ_4K);
+		writel(0x6410, reg + S3C64XX_SW_RESET_OFF);	/* SW Register*/
+	}
+	#endif
+	//janged end
 #ifdef CONFIG_SMP
 	/*
 	 * Note smp_send_stop is the usual smp shutdown function, which
