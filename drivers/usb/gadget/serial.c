@@ -19,6 +19,8 @@
 #include "u_serial.h"
 #include "gadget_chips.h"
 
+/* for janged */
+#include <mach/gpio.h>
 
 /* Defines */
 
@@ -245,8 +247,19 @@ static struct usb_composite_driver gserial_driver = {
 	.bind		= gs_bind,
 };
 
+extern void usb_otg_clk_enable(void);
+extern void otg_phy_init(void);
 static int __init init(void)
 {
+	/* don't let them unload us ever */
+	__module_get(THIS_MODULE);
+	/* hello, janged */
+	/* enable otg, set up clocks, initialize transiever */
+	gpio_set_value(S3C64XX_GPM(2), 1);
+	gpio_set_value(S3C64XX_GPK(1), 1);
+	usb_otg_clk_enable();
+	otg_phy_init();
+
 	/* We *could* export two configs; that'd be much cleaner...
 	 * but neither of these product IDs was defined that way.
 	 */
