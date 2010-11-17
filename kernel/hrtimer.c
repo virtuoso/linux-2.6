@@ -646,6 +646,9 @@ void clock_was_set(void)
 {
 	/* Retrigger the CPU local events everywhere */
 	on_each_cpu(retrigger_next_event, NULL, 1);
+
+	/* Trigger timerfd notifiers */
+	timerfd_clock_was_set();
 }
 
 /*
