@@ -642,8 +642,10 @@ static void retrigger_next_event(void *arg)
  * resolution timer interrupts. On UP we just disable interrupts and
  * call the high resolution interrupt code.
  */
+void timerfd_clock_was_set(clockid_t clockid);
 void clock_was_set(void)
 {
+	timerfd_clock_was_set(CLOCK_REALTIME);
 	/* Retrigger the CPU local events everywhere */
 	on_each_cpu(retrigger_next_event, NULL, 1);
 }

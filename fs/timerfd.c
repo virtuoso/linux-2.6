@@ -30,7 +30,13 @@ struct timerfd_ctx {
 	u64 ticks;
 	int expired;
 	int clockid;
+	int clock_notifier; /* list_empty()? */
+	struct list_head notifiers_list;
 };
+
+/* TFD_NOTIFY_CLOCK_SET timers go here */
+static DEFINE_SPINLOCK(notifiers_lock);
+static LIST_HEAD(notifiers_list);
 
 /*
  * This gets called when the timer event triggers. We set the "expired"
@@ -51,6 +57,21 @@ static enum hrtimer_restart timerfd_tmrproc(struct hrtimer *htmr)
 	return HRTIMER_NORESTART;
 }
 
+void timerfd_clock_was_set(void)
+{
+	struct timerfd_ctx *ctx;
+	unsigned long flags;
+
+	spin_lock(&notifiers_lock);
+	list_for_each_entry(ctx, &notifiers_list, notifiers_list) {
+		spin_lock_irqsave(&ctx->wqh.lock, flags);
+		ctx->ticks++;
+		wake_up_locked(&ctx->wqh);
+		spin_unlock_irqrestore(&ctx->wqh.lock, flags);
+	}
+	spin_unlock(&notifiers_lock);
+}
+
 static ktime_t timerfd_get_remaining(struct timerfd_ctx *ctx)
 {
 	ktime_t remaining;
@@ -64,6 +85,14 @@ static void timerfd_setup(struct timerfd_ctx *ctx, int flags,
 {
 	enum hrtimer_mode htmode;
 	ktime_t texp;
+
+	if (flags & TFD_NOTIFY_CLOCK_SET) {
+		ctx->clock_notifier = 1;
+		ctx->ticks = 0;
+		INIT_LIST_HEAD(&ctx->notifiers_list);
+		list_add(&ctx->notifiers_list, &notifiers_list);
+		return;
+	}
 
 	htmode = (flags & TFD_TIMER_ABSTIME) ?
 		HRTIMER_MODE_ABS: HRTIMER_MODE_REL;
@@ -83,7 +112,12 @@ static int timerfd_release(struct inode *inode, struct file *file)
 {
 	struct timerfd_ctx *ctx = file->private_data;
 
-	hrtimer_cancel(&ctx->tmr);
+	if (ctx->clock_notifier) {
+		spin_lock(&notifiers_lock);
+		list_del(&ctx->notifiers_list);
+		spin_unlock(&notifiers_lock);
+	} else
+		hrtimer_cancel(&ctx->tmr);
 	kfree(ctx);
 	return 0;
 }
@@ -113,6 +147,7 @@ static ssize_t timerfd_read(struct file *file, char __user *buf, size_t count,
 
 	if (count < sizeof(ticks))
 		return -EINVAL;
+
 	spin_lock_irq(&ctx->wqh.lock);
 	if (file->f_flags & O_NONBLOCK)
 		res = -EAGAIN;
@@ -120,7 +155,7 @@ static ssize_t timerfd_read(struct file *file, char __user *buf, size_t count,
 		res = wait_event_interruptible_locked_irq(ctx->wqh, ctx->ticks);
 	if (ctx->ticks) {
 		ticks = ctx->ticks;
-		if (ctx->expired && ctx->tintv.tv64) {
+		if (ctx->expired && ctx->tintv.tv64 && !ctx->clock_notifier) {
 			/*
 			 * If tintv.tv64 != 0, this is a periodic timer that
 			 * needs to be re-armed. We avoid doing it in the timer
@@ -218,11 +253,18 @@ SYSCALL_DEFINE4(timerfd_settime, int, ufd, int, flags,
 	 * it to the new values.
 	 */
 	for (;;) {
+		spin_lock(&notifiers_lock);
 		spin_lock_irq(&ctx->wqh.lock);
 		if (hrtimer_try_to_cancel(&ctx->tmr) >= 0)
 			break;
 		spin_unlock_irq(&ctx->wqh.lock);
+		spin_unlock(&notifiers_lock);
 		cpu_relax();
+	}
+
+	if (ctx->clock_notifier) {
+		ctx->clock_notifier = 0;
+		list_del(&ctx->notifiers_list);
 	}
 
 	/*
@@ -243,6 +285,7 @@ SYSCALL_DEFINE4(timerfd_settime, int, ufd, int, flags,
 	timerfd_setup(ctx, flags, &ktmr);
 
 	spin_unlock_irq(&ctx->wqh.lock);
+	spin_unlock(&notifiers_lock);
 	fput(file);
 	if (otmr && copy_to_user(otmr, &kotmr, sizeof(kotmr)))
 		return -EFAULT;
@@ -262,6 +305,11 @@ SYSCALL_DEFINE2(timerfd_gettime, int, ufd, struct itimerspec __user *, otmr)
 	ctx = file->private_data;
 
 	spin_lock_irq(&ctx->wqh.lock);
+	if (ctx->clock_notifier) {
+		spin_unlock_irq(&ctx->wqh.lock);
+		return -EINVAL;
+	}
+
 	if (ctx->expired && ctx->tintv.tv64) {
 		ctx->expired = 0;
 		ctx->ticks +=
