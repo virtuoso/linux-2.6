@@ -663,6 +663,7 @@ void clock_was_set(void)
 {
 	/* Retrigger the CPU local events everywhere */
 	on_each_cpu(retrigger_next_event, NULL, 1);
+
 }
 
 /*
@@ -675,6 +676,9 @@ void hres_timers_resume(void)
 		  KERN_INFO "hres_timers_resume() called with IRQs enabled!");
 
 	retrigger_next_event(NULL);
+
+	/* Trigger timerfd notifiers */
+	timerfd_clock_was_set(CLOCK_MONOTONIC);
 }
 
 /*

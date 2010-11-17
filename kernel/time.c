@@ -92,7 +92,10 @@ SYSCALL_DEFINE1(stime, time_t __user *, tptr)
 	if (err)
 		return err;
 
-	do_settimeofday(&tv);
+	err = do_settimeofday(&tv);
+	if (!err)
+		timerfd_clock_was_set(CLOCK_REALTIME);
+
 	return 0;
 }
 
@@ -177,7 +180,11 @@ int do_sys_settimeofday(const struct timespec *tv, const struct timezone *tz)
 		/* SMP safe, again the code in arch/foo/time.c should
 		 * globally block out interrupts when it runs.
 		 */
-		return do_settimeofday(tv);
+		error = do_settimeofday(tv);
+		if (!error)
+			timerfd_clock_was_set(CLOCK_REALTIME);
+
+		return error;
 	}
 	return 0;
 }

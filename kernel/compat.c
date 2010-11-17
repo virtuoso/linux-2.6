@@ -995,7 +995,10 @@ asmlinkage long compat_sys_stime(compat_time_t __user *tptr)
 	if (err)
 		return err;
 
-	do_settimeofday(&tv);
+	err = do_settimeofday(&tv);
+	if (!err)
+		timerfd_clock_was_set(CLOCK_REALTIME);
+
 	return 0;
 }
 

@@ -248,6 +248,12 @@ static inline ktime_t hrtimer_expires_remaining(const struct hrtimer *timer)
 	return ktime_sub(timer->node.expires, timer->base->get_time());
 }
 
+#ifdef CONFIG_TIMERFD
+extern void timerfd_clock_was_set(clockid_t clockid);
+#else
+static inline void timerfd_clock_was_set(clockid_t clockid) {}
+#endif
+
 #ifdef CONFIG_HIGH_RES_TIMERS
 struct clock_event_device;
 
