@@ -86,21 +86,21 @@ static void timerfd_setup(struct timerfd_ctx *ctx, int flags,
 	enum hrtimer_mode htmode;
 	ktime_t texp;
 
-	if (flags & TFD_NOTIFY_CLOCK_SET) {
-		ctx->clock_notifier = 1;
-		ctx->ticks = 0;
-		INIT_LIST_HEAD(&ctx->notifiers_list);
-		list_add(&ctx->notifiers_list, &notifiers_list);
-		return;
-	}
-
 	htmode = (flags & TFD_TIMER_ABSTIME) ?
 		HRTIMER_MODE_ABS: HRTIMER_MODE_REL;
 
+	INIT_LIST_HEAD(&ctx->notifiers_list);
 	texp = timespec_to_ktime(ktmr->it_value);
 	ctx->expired = 0;
 	ctx->ticks = 0;
 	ctx->tintv = timespec_to_ktime(ktmr->it_interval);
+
+	if (flags & TFD_NOTIFY_CLOCK_SET) {
+		ctx->clock_notifier = 1;
+		list_add(&ctx->notifiers_list, &notifiers_list);
+		return;
+	}
+
 	hrtimer_init(&ctx->tmr, ctx->clockid, htmode);
 	hrtimer_set_expires(&ctx->tmr, texp);
 	ctx->tmr.function = timerfd_tmrproc;
@@ -306,8 +306,11 @@ SYSCALL_DEFINE2(timerfd_gettime, int, ufd, struct itimerspec __user *, otmr)
 
 	spin_lock_irq(&ctx->wqh.lock);
 	if (ctx->clock_notifier) {
+		kotmr.it_value = current_kernel_time();
+		kotmr.it_interval.tv_sec = 0;
+		kotmr.it_interval.tv_nsec = 0;
 		spin_unlock_irq(&ctx->wqh.lock);
-		return -EINVAL;
+		goto out;
 	}
 
 	if (ctx->expired && ctx->tintv.tv64) {
@@ -321,6 +324,7 @@ SYSCALL_DEFINE2(timerfd_gettime, int, ufd, struct itimerspec __user *, otmr)
 	spin_unlock_irq(&ctx->wqh.lock);
 	fput(file);
 
+out:
 	return copy_to_user(otmr, &kotmr, sizeof(kotmr)) ? -EFAULT: 0;
 }
 
