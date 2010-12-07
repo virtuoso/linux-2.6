@@ -35,7 +35,7 @@
 #include <asm/i8259.h>
 #include <asm/intel_scu_ipc.h>
 #include <asm/apb_timer.h>
-
+#include <asm/reboot.h>
 
 /*
  * the clockevent devices on Moorestown/Medfield can be APBT or LAPIC clock,
@@ -195,7 +195,7 @@ int __init sfi_parse_mrtc(struct sfi_table_header *table)
 			totallen, (u32)pentry->phys_addr, pentry->irq);
 		mp_irq.type = MP_IOAPIC;
 		mp_irq.irqtype = mp_INT;
-		mp_irq.irqflag = 0;
+		mp_irq.irqflag = 0xf;	/* level trigger and active low */
 		mp_irq.srcbus = 0;
 		mp_irq.srcbusirq = pentry->irq;	/* IRQ */
 		mp_irq.dstapic = MP_APIC_ALL;
@@ -241,11 +241,6 @@ void __init mrst_time_init(void)
 	apbt_time_init();
 }
 
-void __init mrst_rtc_init(void)
-{
-	sfi_table_parse(SFI_SIG_MRTC, NULL, NULL, sfi_parse_mrtc);
-}
-
 void __cpuinit mrst_arch_setup(void)
 {
 	if (boot_cpu_data.x86 == 6 && boot_cpu_data.x86_model == 0x27)
@@ -266,6 +261,17 @@ void __cpuinit mrst_arch_setup(void)
 static int mrst_i8042_detect(void)
 {
 	return 0;
+}
+
+/* Reboot and power off are handled by the SCU on a MID device */
+static void mrst_power_off(void)
+{
+	intel_scu_ipc_simple_command(0xf1, 1);
+}
+
+static void mrst_reboot(void)
+{
+	intel_scu_ipc_simple_command(0xf1, 0);
 }
 
 /*
@@ -292,6 +298,10 @@ void __init x86_mrst_early_setup(void)
 	x86_init.pci.fixup_irqs = x86_init_noop;
 
 	legacy_pic = &null_legacy_pic;
+
+	/* Moorestown specific power_off/restart method */
+	pm_power_off = mrst_power_off;
+	machine_ops.emergency_restart  = mrst_reboot;
 
 	/* Avoid searching for BIOS MP tables */
 	x86_init.mpparse.find_smp_config = x86_init_noop;
@@ -489,6 +499,11 @@ static void __init *lis331dl_platform_data(void *info)
 	return &intr2nd_pdata;
 }
 
+static void __init *no_platform_data(void *info)
+{
+	return NULL;
+}
+
 static const struct devs_id __initconst device_ids[] = {
 	{"pmic_gpio", SFI_DEV_TYPE_SPI, 1, &pmic_gpio_platform_data},
 	{"spi_max3111", SFI_DEV_TYPE_SPI, 0, &max3111_platform_data},
@@ -496,6 +511,8 @@ static const struct devs_id __initconst device_ids[] = {
 	{"i2c_max7315_2", SFI_DEV_TYPE_I2C, 1, &max7315_platform_data},
 	{"emc1403", SFI_DEV_TYPE_I2C, 1, &emc1403_platform_data},
 	{"i2c_accel", SFI_DEV_TYPE_I2C, 0, &lis331dl_platform_data},
+	{"pmic_audio", SFI_DEV_TYPE_IPC, 1, &no_platform_data},
+	{"msic_audio", SFI_DEV_TYPE_IPC, 1, &no_platform_data},
 	{},
 };
 
