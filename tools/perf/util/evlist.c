@@ -107,7 +107,7 @@ struct perf_evsel *perf_evlist__id2evsel(struct perf_evlist *evlist, u64 id)
 	return NULL;
 }
 
-event_t *perf_evlist__read_on_cpu(struct perf_evlist *evlist, int cpu)
+union perf_event *perf_evlist__read_on_cpu(struct perf_evlist *evlist, int cpu)
 {
 	/* XXX Move this to perf.c, making it generally available */
 	unsigned int page_size = sysconf(_SC_PAGE_SIZE);
@@ -115,31 +115,32 @@ event_t *perf_evlist__read_on_cpu(struct perf_evlist *evlist, int cpu)
 	unsigned int head = perf_mmap__read_head(md);
 	unsigned int old = md->prev;
 	unsigned char *data = md->base + page_size;
-	event_t *event = NULL;
-	int diff;
+	union perf_event *event = NULL;
 
-	/*
-	 * If we're further behind than half the buffer, there's a chance
-	 * the writer will bite our tail and mess up the samples under us.
-	 *
-	 * If we somehow ended up ahead of the head, we got messed up.
-	 *
-	 * In either case, truncate and restart at head.
-	 */
-	diff = head - old;
-	if (diff > md->mask / 2 || diff < 0) {
-		fprintf(stderr, "WARNING: failed to keep up with mmap data.\n");
-
+	if (evlist->overwrite) {
 		/*
-		 * head points to a known good entry, start there.
+		 * If we're further behind than half the buffer, there's a chance
+		 * the writer will bite our tail and mess up the samples under us.
+		 *
+		 * If we somehow ended up ahead of the head, we got messed up.
+		 *
+		 * In either case, truncate and restart at head.
 		 */
-		old = head;
+		int diff = head - old;
+		if (diff > md->mask / 2 || diff < 0) {
+			fprintf(stderr, "WARNING: failed to keep up with mmap data.\n");
+
+			/*
+			 * head points to a known good entry, start there.
+			 */
+			old = head;
+		}
 	}
 
 	if (old != head) {
 		size_t size;
 
-		event = (event_t *)&data[old & md->mask];
+		event = (union perf_event *)&data[old & md->mask];
 		size = event->header.size;
 
 		/*
@@ -166,5 +167,9 @@ event_t *perf_evlist__read_on_cpu(struct perf_evlist *evlist, int cpu)
 	}
 
 	md->prev = old;
+
+	if (!evlist->overwrite)
+		perf_mmap__write_tail(md, old);
+
 	return event;
 }
