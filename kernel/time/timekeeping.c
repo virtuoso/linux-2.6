@@ -779,7 +779,7 @@ static cycle_t logarithmic_accumulation(cycle_t offset, int shift)
  *
  * Called from the timer interrupt, must hold a write on xtime_lock.
  */
-void update_wall_time(void)
+static void update_wall_time(void)
 {
 	struct clocksource *clock;
 	cycle_t offset;
@@ -910,11 +910,6 @@ struct timespec __current_kernel_time(void)
 	return xtime;
 }
 
-struct timespec __get_wall_to_monotonic(void)
-{
-	return wall_to_monotonic;
-}
-
 struct timespec current_kernel_time(void)
 {
 	struct timespec now;
@@ -945,4 +940,45 @@ struct timespec get_monotonic_coarse(void)
 	set_normalized_timespec(&now, now.tv_sec + mono.tv_sec,
 				now.tv_nsec + mono.tv_nsec);
 	return now;
+}
+
+/*
+ * The 64-bit jiffies value is not atomic - you MUST NOT read it
+ * without sampling the sequence number in xtime_lock.
+ * jiffies is defined in the linker script...
+ */
+void do_timer(unsigned long ticks)
+{
+	jiffies_64 += ticks;
+	update_wall_time();
+	calc_global_load(ticks);
+}
+
+/**
+ * get_xtime_and_monotonic_offset() - get xtime and wall_to_monotonic
+ * @xtim:	pointer to timespec to be set with xtime
+ * @wtom:	pointer to timespec to be set with wall_to_monotonic
+ */
+void get_xtime_and_monotonic_offset(struct timespec *xtim, struct timespec *wtom)
+{
+	unsigned long seq;
+
+	do {
+		seq = read_seqbegin(&xtime_lock);
+		*xtim = xtime;
+		*wtom = wall_to_monotonic;
+	} while (read_seqretry(&xtime_lock, seq));
+}
+
+/**
+ * xtime_update() - advances the timekeeping infrastructure
+ * @ticks:	number of ticks, that have elapsed since the last call.
+ *
+ * Must be called with interrupts disabled.
+ */
+void xtime_update(unsigned long ticks)
+{
+	write_seqlock(&xtime_lock);
+	do_timer(ticks);
+	write_sequnlock(&xtime_lock);
 }
