@@ -15,6 +15,8 @@ struct throttle_event {
 	u64			 stream_id;
 };
 
+PyMODINIT_FUNC initperf(void);
+
 #define member_def(type, member, ptype, help) \
 	{ #member, ptype, \
 	  offsetof(struct pyrf_event, event) + offsetof(struct type, member), \
@@ -31,17 +33,15 @@ struct pyrf_event {
 	union perf_event   event;
 };
 
-#define T_ULONG_LONG T_ULONG
-
 #define sample_members \
-	sample_member_def(sample_ip, ip, T_ULONG_LONG, "event type"),			 \
+	sample_member_def(sample_ip, ip, T_ULONGLONG, "event type"),			 \
 	sample_member_def(sample_pid, pid, T_INT, "event pid"),			 \
 	sample_member_def(sample_tid, tid, T_INT, "event tid"),			 \
-	sample_member_def(sample_time, time, T_ULONG_LONG, "event timestamp"),		 \
-	sample_member_def(sample_addr, addr, T_ULONG_LONG, "event addr"),		 \
-	sample_member_def(sample_id, id, T_ULONG_LONG, "event id"),			 \
-	sample_member_def(sample_stream_id, stream_id, T_ULONG_LONG, "event stream id"), \
-	sample_member_def(sample_period, period, T_ULONG_LONG, "event period"),		 \
+	sample_member_def(sample_time, time, T_ULONGLONG, "event timestamp"),		 \
+	sample_member_def(sample_addr, addr, T_ULONGLONG, "event addr"),		 \
+	sample_member_def(sample_id, id, T_ULONGLONG, "event id"),			 \
+	sample_member_def(sample_stream_id, stream_id, T_ULONGLONG, "event stream id"), \
+	sample_member_def(sample_period, period, T_ULONGLONG, "event period"),		 \
 	sample_member_def(sample_cpu, cpu, T_UINT, "event cpu"),
 
 static char pyrf_mmap_event__doc[] = PyDoc_STR("perf mmap event object.");
@@ -51,11 +51,11 @@ static PyMemberDef pyrf_mmap_event__members[] = {
 	member_def(perf_event_header, type, T_UINT, "event type"),
 	member_def(mmap_event, pid, T_UINT, "event pid"),
 	member_def(mmap_event, tid, T_UINT, "event tid"),
-	member_def(mmap_event, start, T_ULONG_LONG, "start of the map"),
-	member_def(mmap_event, len, T_ULONG_LONG, "map length"),
-	member_def(mmap_event, pgoff, T_ULONG_LONG, "page offset"),
+	member_def(mmap_event, start, T_ULONGLONG, "start of the map"),
+	member_def(mmap_event, len, T_ULONGLONG, "map length"),
+	member_def(mmap_event, pgoff, T_ULONGLONG, "page offset"),
 	member_def(mmap_event, filename, T_STRING_INPLACE, "backing store"),
-	{ NULL, },
+	{ .name = NULL, },
 };
 
 static PyObject *pyrf_mmap_event__repr(struct pyrf_event *pevent)
@@ -96,8 +96,8 @@ static PyMemberDef pyrf_task_event__members[] = {
 	member_def(fork_event, ppid, T_UINT, "event ppid"),
 	member_def(fork_event, tid, T_UINT, "event tid"),
 	member_def(fork_event, ptid, T_UINT, "event ptid"),
-	member_def(fork_event, time, T_ULONG_LONG, "timestamp"),
-	{ NULL, },
+	member_def(fork_event, time, T_ULONGLONG, "timestamp"),
+	{ .name = NULL, },
 };
 
 static PyObject *pyrf_task_event__repr(struct pyrf_event *pevent)
@@ -130,7 +130,7 @@ static PyMemberDef pyrf_comm_event__members[] = {
 	member_def(comm_event, pid, T_UINT, "event pid"),
 	member_def(comm_event, tid, T_UINT, "event tid"),
 	member_def(comm_event, comm, T_STRING_INPLACE, "process name"),
-	{ NULL, },
+	{ .name = NULL, },
 };
 
 static PyObject *pyrf_comm_event__repr(struct pyrf_event *pevent)
@@ -156,10 +156,10 @@ static char pyrf_throttle_event__doc[] = PyDoc_STR("perf throttle event object."
 static PyMemberDef pyrf_throttle_event__members[] = {
 	sample_members
 	member_def(perf_event_header, type, T_UINT, "event type"),
-	member_def(throttle_event, time, T_ULONG_LONG, "timestamp"),
-	member_def(throttle_event, id, T_ULONG_LONG, "event id"),
-	member_def(throttle_event, stream_id, T_ULONG_LONG, "event stream id"),
-	{ NULL, },
+	member_def(throttle_event, time, T_ULONGLONG, "timestamp"),
+	member_def(throttle_event, id, T_ULONGLONG, "event id"),
+	member_def(throttle_event, stream_id, T_ULONGLONG, "event stream id"),
+	{ .name = NULL, },
 };
 
 static PyObject *pyrf_throttle_event__repr(struct pyrf_event *pevent)
@@ -522,7 +522,7 @@ static PyMethodDef pyrf_evsel__methods[] = {
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc	  = PyDoc_STR("open the event selector file descriptor table.")
 	},
-	{ NULL, }
+	{ .ml_name = NULL, }
 };
 
 static char pyrf_evsel__doc[] = PyDoc_STR("perf event selector list object.");
@@ -551,9 +551,18 @@ struct pyrf_evlist {
 };
 
 static int pyrf_evlist__init(struct pyrf_evlist *pevlist,
-			     PyObject *args, PyObject *kwargs)
+			     PyObject *args, PyObject *kwargs __used)
 {
-	perf_evlist__init(&pevlist->evlist);
+	PyObject *pcpus = NULL, *pthreads = NULL;
+	struct cpu_map *cpus;
+	struct thread_map *threads;
+
+	if (!PyArg_ParseTuple(args, "OO", &pcpus, &pthreads))
+		return -1;
+
+	threads = ((struct pyrf_thread_map *)pthreads)->threads;
+	cpus = ((struct pyrf_cpu_map *)pcpus)->cpus;
+	perf_evlist__init(&pevlist->evlist, cpus, threads);
 	return 0;
 }
 
@@ -567,21 +576,15 @@ static PyObject *pyrf_evlist__mmap(struct pyrf_evlist *pevlist,
 				   PyObject *args, PyObject *kwargs)
 {
 	struct perf_evlist *evlist = &pevlist->evlist;
-	PyObject *pcpus = NULL, *pthreads = NULL;
-	struct cpu_map *cpus = NULL;
-	struct thread_map *threads = NULL;
-	static char *kwlist[] = {"cpus", "threads", "pages", "overwrite",
+	static char *kwlist[] = {"pages", "overwrite",
 				  NULL, NULL};
 	int pages = 128, overwrite = false;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|ii", kwlist,
-					 &pcpus, &pthreads, &pages, &overwrite))
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ii", kwlist,
+					 &pages, &overwrite))
 		return NULL;
 
-	threads = ((struct pyrf_thread_map *)pthreads)->threads;
-	cpus = ((struct pyrf_cpu_map *)pcpus)->cpus;
-
-	if (perf_evlist__mmap(evlist, cpus, threads, pages, overwrite) < 0) {
+	if (perf_evlist__mmap(evlist, pages, overwrite) < 0) {
 		PyErr_SetFromErrno(PyExc_OSError);
 		return NULL;
 	}
@@ -610,7 +613,7 @@ static PyObject *pyrf_evlist__poll(struct pyrf_evlist *pevlist,
 }
 
 static PyObject *pyrf_evlist__get_pollfd(struct pyrf_evlist *pevlist,
-					 PyObject *args, PyObject *kwargs)
+					 PyObject *args __used, PyObject *kwargs __used)
 {
 	struct perf_evlist *evlist = &pevlist->evlist;
         PyObject *list = PyList_New(0);
@@ -642,7 +645,7 @@ free_list:
 
 
 static PyObject *pyrf_evlist__add(struct pyrf_evlist *pevlist,
-				  PyObject *args, PyObject *kwargs)
+				  PyObject *args, PyObject *kwargs __used)
 {
 	struct perf_evlist *evlist = &pevlist->evlist;
 	PyObject *pevsel;
@@ -721,7 +724,7 @@ static PyMethodDef pyrf_evlist__methods[] = {
 		.ml_flags = METH_VARARGS | METH_KEYWORDS,
 		.ml_doc	  = PyDoc_STR("reads an event.")
 	},
-	{ NULL, }
+	{ .ml_name = NULL, }
 };
 
 static Py_ssize_t pyrf_evlist__length(PyObject *obj)
@@ -837,11 +840,11 @@ static struct {
 	{ "RECORD_FORK",       PERF_RECORD_FORK },
 	{ "RECORD_READ",       PERF_RECORD_READ },
 	{ "RECORD_SAMPLE",     PERF_RECORD_SAMPLE },
-	{ NULL, },
+	{ .name = NULL, },
 };
 
 static PyMethodDef perf__methods[] = {
-	{ NULL, NULL }
+	{ .ml_name = NULL, }
 };
 
 PyMODINIT_FUNC initperf(void)
