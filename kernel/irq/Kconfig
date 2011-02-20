@@ -13,6 +13,9 @@ config GENERIC_HARDIRQS
 config GENERIC_HARDIRQS_NO_DEPRECATED
        def_bool n
 
+config GENERIC_HARDIRQS_NO_COMPAT
+       def_bool n
+
 # Options selectable by the architecture code
 config HAVE_SPARSE_IRQ
        def_bool n
@@ -20,16 +23,19 @@ config HAVE_SPARSE_IRQ
 config GENERIC_IRQ_PROBE
 	def_bool n
 
+config GENERIC_IRQ_SHOW
+       def_bool n
+
 config GENERIC_PENDING_IRQ
 	def_bool n
 
 config AUTO_IRQ_AFFINITY
        def_bool n
 
-config IRQ_PER_CPU
+config HARDIRQS_SW_RESEND
        def_bool n
 
-config HARDIRQS_SW_RESEND
+config IRQ_PREFLOW_FASTEOI
        def_bool n
 
 config SPARSE_IRQ

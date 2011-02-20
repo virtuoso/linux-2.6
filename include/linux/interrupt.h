@@ -74,20 +74,6 @@
 #define IRQF_TIMER		(__IRQF_TIMER | IRQF_NO_SUSPEND)
 
 /*
- * Bits used by threaded handlers:
- * IRQTF_RUNTHREAD - signals that the interrupt handler thread should run
- * IRQTF_DIED      - handler thread died
- * IRQTF_WARNED    - warning "IRQ_WAKE_THREAD w/o thread_fn" has been printed
- * IRQTF_AFFINITY  - irq thread is requested to adjust affinity
- */
-enum {
-	IRQTF_RUNTHREAD,
-	IRQTF_DIED,
-	IRQTF_WARNED,
-	IRQTF_AFFINITY,
-};
-
-/*
  * These values can be returned by request_any_context_irq() and
  * describe the context the interrupt will be run in.
  *
@@ -346,16 +332,24 @@ static inline void enable_irq_lockdep_irqrestore(unsigned int irq, unsigned long
 }
 
 /* IRQ wakeup (PM) control: */
-extern int set_irq_wake(unsigned int irq, unsigned int on);
+extern int irq_set_irq_wake(unsigned int irq, unsigned int on);
+
+#ifndef CONFIG_GENERIC_HARDIRQS_NO_COMPAT
+/* Please do not use: Use the replacement functions instead */
+static inline int set_irq_wake(unsigned int irq, unsigned int on)
+{
+	return irq_set_irq_wake(irq, on);
+}
+#endif
 
 static inline int enable_irq_wake(unsigned int irq)
 {
-	return set_irq_wake(irq, 1);
+	return irq_set_irq_wake(irq, 1);
 }
 
 static inline int disable_irq_wake(unsigned int irq)
 {
-	return set_irq_wake(irq, 0);
+	return irq_set_irq_wake(irq, 0);
 }
 
 #else /* !CONFIG_GENERIC_HARDIRQS */
@@ -684,6 +678,7 @@ static inline void init_irq_proc(void)
 
 struct seq_file;
 int show_interrupts(struct seq_file *p, void *v);
+int arch_show_interrupts(struct seq_file *p, int prec);
 
 extern int early_irq_init(void);
 extern int arch_probe_nr_irqs(void);
