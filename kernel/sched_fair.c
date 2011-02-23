@@ -2743,7 +2743,7 @@ static inline void update_sg_lb_stats(struct sched_domain *sd,
 
 	/*
 	 * Consider the group unbalanced when the imbalance is larger
-	 * than the average weight of two tasks.
+	 * than the average weight of a task.
 	 *
 	 * APZ: with cgroup the avg task weight can vary wildly and
 	 *      might not be a suitable number - should we keep a
@@ -2753,7 +2753,7 @@ static inline void update_sg_lb_stats(struct sched_domain *sd,
 	if (sgs->sum_nr_running)
 		avg_load_per_task = sgs->sum_weighted_load / sgs->sum_nr_running;
 
-	if ((max_cpu_load - min_cpu_load) > 2*avg_load_per_task && max_nr_running > 1)
+	if ((max_cpu_load - min_cpu_load) >= avg_load_per_task && max_nr_running > 1)
 		sgs->group_imb = 1;
 
 	sgs->group_capacity = DIV_ROUND_CLOSEST(group->cpu_power, SCHED_LOAD_SCALE);
@@ -3113,19 +3113,9 @@ find_busiest_group(struct sched_domain *sd, int this_cpu,
 	 */
 	update_sd_lb_stats(sd, this_cpu, idle, cpus, balance, &sds);
 
-	/* Cases where imbalance does not exist from POV of this_cpu */
-	/* 1) this_cpu is not the appropriate cpu to perform load balancing
-	 *    at this level.
-	 * 2) There is no busy sibling group to pull from.
-	 * 3) This group is the busiest group.
-	 * 4) This group is more busy than the avg busieness at this
-	 *    sched_domain.
-	 * 5) The imbalance is within the specified limit.
-	 *
-	 * Note: when doing newidle balance, if the local group has excess
-	 * capacity (i.e. nr_running < group_capacity) and the busiest group
-	 * does not have any capacity, we force a load balance to pull tasks
-	 * to the local group. In this case, we skip past checks 3, 4 and 5.
+	/*
+	 * this_cpu is not the appropriate cpu to perform load balancing at
+	 * this level.
 	 */
 	if (!(*balance))
 		goto ret;
@@ -3134,40 +3124,54 @@ find_busiest_group(struct sched_domain *sd, int this_cpu,
 	    check_asym_packing(sd, &sds, this_cpu, imbalance))
 		return sds.busiest;
 
+	/* There is no busy sibling group to pull tasks from */
 	if (!sds.busiest || sds.busiest_nr_running == 0)
 		goto out_balanced;
 
-	/*  SD_BALANCE_NEWIDLE trumps SMP nice when underutilized */
+	/*
+	 * If the busiest group is imbalanced the below checks don't
+	 * work because they assumes all things are equal, which typically
+	 * isn't true due to cpus_allowed constraints and the like.
+	 */
+	if (sds.group_imb)
+		goto force_balance;
+
+	/* SD_BALANCE_NEWIDLE trumps SMP nice when underutilized */
 	if (idle == CPU_NEWLY_IDLE && sds.this_has_capacity &&
 			!sds.busiest_has_capacity)
 		goto force_balance;
 
+	/*
+	 * If the local group is more busy than the selected busiest group
+	 * don't try and pull any tasks.
+	 */
 	if (sds.this_load >= sds.max_load)
 		goto out_balanced;
 
+	/*
+	 * Don't pull any tasks if this group is already above the domain
+	 * average load.
+	 */
 	sds.avg_load = (SCHED_LOAD_SCALE * sds.total_load) / sds.total_pwr;
-
 	if (sds.this_load >= sds.avg_load)
 		goto out_balanced;
 
-	/*
-	 * In the CPU_NEWLY_IDLE, use imbalance_pct to be conservative.
-	 * And to check for busy balance use !idle_cpu instead of
-	 * CPU_NOT_IDLE. This is because HT siblings will use CPU_NOT_IDLE
-	 * even when they are idle.
-	 */
-	if (idle == CPU_NEWLY_IDLE || !idle_cpu(this_cpu)) {
-		if (100 * sds.max_load <= sd->imbalance_pct * sds.this_load)
-			goto out_balanced;
-	} else {
+	if (idle == CPU_IDLE) {
 		/*
 		 * This cpu is idle. If the busiest group load doesn't
 		 * have more tasks than the number of available cpu's and
 		 * there is no imbalance between this and busiest group
 		 * wrt to idle cpu's, it is balanced.
 		 */
-		if ((sds.this_idle_cpus  <= sds.busiest_idle_cpus + 1) &&
+		if ((sds.this_idle_cpus <= sds.busiest_idle_cpus + 1) &&
 		    sds.busiest_nr_running <= sds.busiest_group_weight)
+			goto out_balanced;
+	} else {
+		/*
+		 * In the CPU_NEWLY_IDLE, CPU_NOT_IDLE cases, use
+		 * imbalance_pct to be conservative.
+		 */
+		if (100 * sds.max_load <= sd->imbalance_pct * sds.this_load)
 			goto out_balanced;
 	}
 
@@ -3862,8 +3866,7 @@ static void rebalance_domains(int cpu, enum cpu_idle_type idle)
 			if (load_balance(cpu, rq, sd, idle, &balance)) {
 				/*
 				 * We've pulled tasks over so either we're no
-				 * longer idle, or one of our SMT siblings is
-				 * not idle.
+				 * longer idle.
 				 */
 				idle = CPU_NOT_IDLE;
 			}
