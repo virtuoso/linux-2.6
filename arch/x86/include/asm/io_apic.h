@@ -139,17 +139,14 @@ extern int timer_through_8259;
 #define io_apic_assign_pci_irqs \
 	(mp_irq_entries && !skip_ioapic_setup && io_apic_irqs)
 
-extern u8 io_apic_unique_id(u8 id);
-extern int io_apic_get_unique_id(int ioapic, int apic_id);
-extern int io_apic_get_version(int ioapic);
-extern int io_apic_get_redir_entries(int ioapic);
-
 struct io_apic_irq_attr;
 extern int io_apic_set_pci_routing(struct device *dev, int irq,
 		 struct io_apic_irq_attr *irq_attr);
 void setup_IO_APIC_irq_extra(u32 gsi);
 extern void ioapic_and_gsi_init(void);
 extern void ioapic_insert_resources(void);
+
+int io_apic_setup_irq_pin(unsigned int irq, int node, struct io_apic_irq_attr *attr);
 
 extern struct IO_APIC_route_entry **alloc_ioapic_entries(void);
 extern void free_ioapic_entries(struct IO_APIC_route_entry **ioapic_entries);
