@@ -3666,6 +3666,7 @@ void account_system_time(struct task_struct *p, int hardirq_offset,
 	__account_system_time(p, cputime, cputime_scaled, target_cputime64);
 }
 
+#ifndef CONFIG_VIRT_CPU_ACCOUNTING
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
 /*
  * Account a tick to a process and cpustat
@@ -3732,6 +3733,7 @@ static void irqtime_account_idle_ticks(int ticks) {}
 static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 						struct rq *rq) {}
 #endif
+#endif /* !CONFIG_VIRT_CPU_ACCOUNTING */
 
 /*
  * Account for involuntary wait time.
