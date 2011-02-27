@@ -17,6 +17,17 @@
 
 #include "internals.h"
 
+#ifdef CONFIG_IRQ_FORCED_THREADING
+__read_mostly bool force_irqthreads;
+
+static int __init setup_forced_irqthreads(char *arg)
+{
+	force_irqthreads = true;
+	return 0;
+}
+early_param("threadirqs", setup_forced_irqthreads);
+#endif
+
 /**
  *	synchronize_irq - wait for pending IRQ handlers (on other CPUs)
  *	@irq: interrupt number to wait for
@@ -617,8 +628,11 @@ static int irq_wait_for_interrupt(struct irqaction *action)
  * handler finished. unmask if the interrupt has not been disabled and
  * is marked MASKED.
  */
-static void irq_finalize_oneshot(unsigned int irq, struct irq_desc *desc)
+static void irq_finalize_oneshot(struct irq_desc *desc,
+				 struct irqaction *action, bool force)
 {
+	if (!(desc->istate & IRQS_ONESHOT))
+		return;
 again:
 	chip_bus_lock(desc);
 	raw_spin_lock_irq(&desc->lock);
@@ -631,6 +645,11 @@ again:
 	 * on the other CPU. If we unmask the irq line then the
 	 * interrupt can come in again and masks the line, leaves due
 	 * to IRQS_INPROGRESS and the irq line is masked forever.
+	 *
+	 * This also serializes the state of shared oneshot handlers
+	 * versus "desc->threads_onehsot |= action->thread_mask;" in
+	 * irq_wake_thread(). See the comment there which explains the
+	 * serialization.
 	 */
 	if (unlikely(desc->istate & IRQS_INPROGRESS)) {
 		raw_spin_unlock_irq(&desc->lock);
@@ -639,11 +658,23 @@ again:
 		goto again;
 	}
 
-	if (!(desc->istate & IRQS_DISABLED) && (desc->istate & IRQS_MASKED)) {
+	/*
+	 * Now check again, whether the thread should run. Otherwise
+	 * we would clear the threads_oneshot bit of this thread which
+	 * was just set.
+	 */
+	if (!force && test_bit(IRQTF_RUNTHREAD, &action->thread_flags))
+		goto out_unlock;
+
+	desc->threads_oneshot &= ~action->thread_mask;
+
+	if (!desc->threads_oneshot && !(desc->istate & IRQS_DISABLED) &&
+	    (desc->istate & IRQS_MASKED)) {
 		irq_compat_clr_masked(desc);
 		desc->istate &= ~IRQS_MASKED;
 		desc->irq_data.chip->irq_unmask(&desc->irq_data);
 	}
+out_unlock:
 	raw_spin_unlock_irq(&desc->lock);
 	chip_bus_sync_unlock(desc);
 }
@@ -682,6 +713,32 @@ irq_thread_check_affinity(struct irq_desc *desc, struct irqaction *action) { }
 #endif
 
 /*
+ * Interrupts which are not explicitely requested as threaded
+ * interrupts rely on the implicit bh/preempt disable of the hard irq
+ * context. So we need to disable bh here to avoid deadlocks and other
+ * side effects.
+ */
+static void
+irq_forced_thread_fn(struct irq_desc *desc, struct irqaction *action)
+{
+	local_bh_disable();
+	action->thread_fn(action->irq, action->dev_id);
+	irq_finalize_oneshot(desc, action, false);
+	local_bh_enable();
+}
+
+/*
+ * Interrupts explicitely requested as threaded interupts want to be
+ * preemtible - many of them need to sleep and wait for slow busses to
+ * complete.
+ */
+static void irq_thread_fn(struct irq_desc *desc, struct irqaction *action)
+{
+	action->thread_fn(action->irq, action->dev_id);
+	irq_finalize_oneshot(desc, action, false);
+}
+
+/*
  * Interrupt handler thread
  */
 static int irq_thread(void *data)
@@ -691,7 +748,14 @@ static int irq_thread(void *data)
 	};
 	struct irqaction *action = data;
 	struct irq_desc *desc = irq_to_desc(action->irq);
-	int wake, oneshot = desc->istate & IRQS_ONESHOT;
+	void (*handler_fn)(struct irq_desc *desc, struct irqaction *action);
+	int wake;
+
+	if (force_irqthreads & test_bit(IRQTF_FORCED_THREAD,
+					&action->thread_flags))
+		handler_fn = irq_forced_thread_fn;
+	else
+		handler_fn = irq_thread_fn;
 
 	sched_setscheduler(current, SCHED_FIFO, &param);
 	current->irqaction = action;
@@ -716,11 +780,7 @@ static int irq_thread(void *data)
 			raw_spin_unlock_irq(&desc->lock);
 		} else {
 			raw_spin_unlock_irq(&desc->lock);
-
-			action->thread_fn(action->irq, action->dev_id);
-
-			if (oneshot)
-				irq_finalize_oneshot(action->irq, desc);
+			handler_fn(desc, action);
 		}
 
 		wake = atomic_dec_and_test(&desc->threads_active);
@@ -728,6 +788,9 @@ static int irq_thread(void *data)
 		if (wake && waitqueue_active(&desc->wait_for_threads))
 			wake_up(&desc->wait_for_threads);
 	}
+
+	/* Prevent a stale desc->threads_oneshot */
+	irq_finalize_oneshot(desc, action, true);
 
 	/*
 	 * Clear irqaction. Otherwise exit_irq_thread() would make
@@ -743,6 +806,7 @@ static int irq_thread(void *data)
 void exit_irq_thread(void)
 {
 	struct task_struct *tsk = current;
+	struct irq_desc *desc;
 
 	if (!tsk->irqaction)
 		return;
@@ -751,11 +815,35 @@ void exit_irq_thread(void)
 	       "exiting task \"%s\" (%d) is an active IRQ thread (irq %d)\n",
 	       tsk->comm ? tsk->comm : "", tsk->pid, tsk->irqaction->irq);
 
+	desc = irq_to_desc(tsk->irqaction->irq);
+
+	/*
+	 * Prevent a stale desc->threads_oneshot. Must be called
+	 * before setting the IRQTF_DIED flag.
+	 */
+	irq_finalize_oneshot(desc, tsk->irqaction, true);
+
 	/*
 	 * Set the THREAD DIED flag to prevent further wakeups of the
 	 * soon to be gone threaded handler.
 	 */
 	set_bit(IRQTF_DIED, &tsk->irqaction->flags);
+}
+
+static void irq_setup_forced_threading(struct irqaction *new)
+{
+	if (!force_irqthreads)
+		return;
+	if (new->flags & (IRQF_NO_THREAD | IRQF_PERCPU | IRQF_ONESHOT))
+		return;
+
+	new->flags |= IRQF_ONESHOT;
+
+	if (!new->thread_fn) {
+		set_bit(IRQTF_FORCED_THREAD, &new->thread_flags);
+		new->thread_fn = new->handler;
+		new->handler = irq_default_primary_handler;
+	}
 }
 
 /*
@@ -767,7 +855,7 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 {
 	struct irqaction *old, **old_ptr;
 	const char *old_name = NULL;
-	unsigned long flags;
+	unsigned long flags, thread_mask = 0;
 	int ret, nested, shared = 0;
 	cpumask_var_t mask;
 
@@ -793,10 +881,6 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 		rand_initialize_irq(irq);
 	}
 
-	/* Oneshot interrupts are not allowed with shared */
-	if ((new->flags & IRQF_ONESHOT) && (new->flags & IRQF_SHARED))
-		return -EINVAL;
-
 	/*
 	 * Check whether the interrupt nests into another interrupt
 	 * thread.
@@ -811,6 +895,8 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 		 * dummy function which warns when called.
 		 */
 		new->handler = irq_nested_primary_handler;
+	} else {
+		irq_setup_forced_threading(new);
 	}
 
 	/*
@@ -850,10 +936,12 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 		 * Can't share interrupts unless both agree to and are
 		 * the same type (level, edge, polarity). So both flag
 		 * fields must have IRQF_SHARED set and the bits which
-		 * set the trigger type must match.
+		 * set the trigger type must match. Also all must
+		 * agree on ONESHOT.
 		 */
 		if (!((old->flags & new->flags) & IRQF_SHARED) ||
-		    ((old->flags ^ new->flags) & IRQF_TRIGGER_MASK)) {
+		    ((old->flags ^ new->flags) & IRQF_TRIGGER_MASK) ||
+		    ((old->flags ^ new->flags) & IRQF_ONESHOT)) {
 			old_name = old->name;
 			goto mismatch;
 		}
@@ -865,11 +953,22 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 
 		/* add new interrupt at end of irq queue */
 		do {
+			thread_mask |= old->thread_mask;
 			old_ptr = &old->next;
 			old = *old_ptr;
 		} while (old);
 		shared = 1;
 	}
+
+	/*
+	 * Setup the thread mask for this irqaction. Unlikely to have
+	 * 32 resp 64 irqs sharing one line, but who knows.
+	 */
+	if (new->flags & IRQF_ONESHOT && thread_mask == ~0UL) {
+		ret = -EBUSY;
+		goto out_mask;
+	}
+	new->thread_mask = 1 << ffz(thread_mask);
 
 	if (!shared) {
 		irq_chip_set_defaults(desc->irq_data.chip);
