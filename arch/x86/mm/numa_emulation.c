@@ -300,6 +300,7 @@ void __init numa_emulation(struct numa_meminfo *numa_meminfo, int numa_dist_cnt)
 	static struct numa_meminfo pi __initdata;
 	const u64 max_addr = max_pfn << PAGE_SHIFT;
 	u8 *phys_dist = NULL;
+	size_t phys_size = numa_dist_cnt * numa_dist_cnt * sizeof(phys_dist[0]);
 	int i, j, ret;
 
 	if (!emu_cmdline)
@@ -336,21 +337,18 @@ void __init numa_emulation(struct numa_meminfo *numa_meminfo, int numa_dist_cnt)
 		goto no_emu;
 	}
 
-	/*
-	 * Copy the original distance table.  It's temporary so no need to
-	 * reserve it.
-	 */
+	/* copy the physical distance table */
 	if (numa_dist_cnt) {
-		size_t size = numa_dist_cnt * sizeof(phys_dist[0]);
 		u64 phys;
 
 		phys = memblock_find_in_range(0,
 					      (u64)max_pfn_mapped << PAGE_SHIFT,
-					      size, PAGE_SIZE);
+					      phys_size, PAGE_SIZE);
 		if (phys == MEMBLOCK_ERROR) {
 			pr_warning("NUMA: Warning: can't allocate copy of distance table, disabling emulation\n");
 			goto no_emu;
 		}
+		memblock_x86_reserve_range(phys, phys + phys_size, "TMP NUMA DIST");
 		phys_dist = __va(phys);
 
 		for (i = 0; i < numa_dist_cnt; i++)
@@ -381,7 +379,11 @@ void __init numa_emulation(struct numa_meminfo *numa_meminfo, int numa_dist_cnt)
 		if (emu_nid_to_phys[i] == NUMA_NO_NODE)
 			emu_nid_to_phys[i] = 0;
 
-	/* transform distance table */
+	/*
+	 * Transform distance table.  numa_set_distance() ignores all
+	 * out-of-bound distances.  Just call it for every possible node
+	 * combination.
+	 */
 	numa_reset_distance();
 	for (i = 0; i < MAX_NUMNODES; i++) {
 		for (j = 0; j < MAX_NUMNODES; j++) {
@@ -398,6 +400,10 @@ void __init numa_emulation(struct numa_meminfo *numa_meminfo, int numa_dist_cnt)
 			numa_set_distance(i, j, dist);
 		}
 	}
+
+	/* free the copied physical distance table */
+	if (phys_dist)
+		memblock_x86_free_range(__pa(phys_dist), __pa(phys_dist) + phys_size);
 	return;
 
 no_emu:
