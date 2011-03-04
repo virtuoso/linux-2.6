@@ -404,11 +404,16 @@ static inline int perf_cgroup_connect(int fd, struct perf_event *event,
 		return -EBADF;
 
 	css = cgroup_css_from_dir(file, perf_subsys_id);
-	if (IS_ERR(css))
-		return PTR_ERR(css);
+	if (IS_ERR(css)) {
+		ret = PTR_ERR(css);
+		goto out;
+	}
 
 	cgrp = container_of(css, struct perf_cgroup, css);
 	event->cgrp = cgrp;
+
+	/* must be done before we fput() the file */
+	perf_get_cgroup(event);
 
 	/*
 	 * all events in a group must monitor
@@ -418,10 +423,8 @@ static inline int perf_cgroup_connect(int fd, struct perf_event *event,
 	if (group_leader && group_leader->cgrp != cgrp) {
 		perf_detach_cgroup(event);
 		ret = -EINVAL;
-	} else {
-		/* must be done before we fput() the file */
-		perf_get_cgroup(event);
 	}
+out:
 	fput_light(file, fput_needed);
 	return ret;
 }
@@ -817,16 +820,8 @@ list_add_event(struct perf_event *event, struct perf_event_context *ctx)
 		list_add_tail(&event->group_entry, list);
 	}
 
-	if (is_cgroup_event(event)) {
+	if (is_cgroup_event(event))
 		ctx->nr_cgroups++;
-		/*
-		 * one more event:
-		 * - that has cgroup constraint on event->cpu
-		 * - that may need work on context switch
-		 */
-		atomic_inc(&per_cpu(perf_cgroup_events, event->cpu));
-		jump_label_inc(&perf_sched_events);
-	}
 
 	list_add_rcu(&event->event_entry, &ctx->event_list);
 	if (!ctx->nr_events)
@@ -954,11 +949,8 @@ list_del_event(struct perf_event *event, struct perf_event_context *ctx)
 
 	event->attach_state &= ~PERF_ATTACH_CONTEXT;
 
-	if (is_cgroup_event(event)) {
+	if (is_cgroup_event(event))
 		ctx->nr_cgroups--;
-		atomic_dec(&per_cpu(perf_cgroup_events, event->cpu));
-		jump_label_dec(&perf_sched_events);
-	}
 
 	ctx->nr_events--;
 	if (event->attr.inherit_stat)
@@ -2900,6 +2892,10 @@ static void free_event(struct perf_event *event)
 			atomic_dec(&nr_task_events);
 		if (event->attr.sample_type & PERF_SAMPLE_CALLCHAIN)
 			put_callchain_buffers();
+		if (is_cgroup_event(event)) {
+			atomic_dec(&per_cpu(perf_cgroup_events, event->cpu));
+			jump_label_dec(&perf_sched_events);
+		}
 	}
 
 	if (event->buffer) {
@@ -6098,17 +6094,22 @@ struct pmu *perf_init_event(struct perf_event *event)
 {
 	struct pmu *pmu = NULL;
 	int idx;
+	int ret;
 
 	idx = srcu_read_lock(&pmus_srcu);
 
 	rcu_read_lock();
 	pmu = idr_find(&pmu_idr, event->attr.type);
 	rcu_read_unlock();
-	if (pmu)
+	if (pmu) {
+		ret = pmu->event_init(event);
+		if (ret)
+			pmu = ERR_PTR(ret);
 		goto unlock;
+	}
 
 	list_for_each_entry_rcu(pmu, &pmus, entry) {
-		int ret = pmu->event_init(event);
+		ret = pmu->event_init(event);
 		if (!ret)
 			goto unlock;
 
@@ -6470,6 +6471,13 @@ SYSCALL_DEFINE5(perf_event_open,
 		err = perf_cgroup_connect(pid, event, &attr, group_leader);
 		if (err)
 			goto err_alloc;
+		/*
+		 * one more event:
+		 * - that has cgroup constraint on event->cpu
+		 * - that may need work on context switch
+		 */
+		atomic_inc(&per_cpu(perf_cgroup_events, event->cpu));
+		jump_label_inc(&perf_sched_events);
 	}
 
 	/*
@@ -7338,14 +7346,10 @@ static struct cgroup_subsys_state *perf_cgroup_create(
 	struct cgroup_subsys *ss, struct cgroup *cont)
 {
 	struct perf_cgroup *jc;
-	struct perf_cgroup_info *t;
-	int c;
 
-	jc = kmalloc(sizeof(*jc), GFP_KERNEL);
+	jc = kzalloc(sizeof(*jc), GFP_KERNEL);
 	if (!jc)
 		return ERR_PTR(-ENOMEM);
-
-	memset(jc, 0, sizeof(*jc));
 
 	jc->info = alloc_percpu(struct perf_cgroup_info);
 	if (!jc->info) {
@@ -7353,11 +7357,6 @@ static struct cgroup_subsys_state *perf_cgroup_create(
 		return ERR_PTR(-ENOMEM);
 	}
 
-	for_each_possible_cpu(c) {
-		t = per_cpu_ptr(jc->info, c);
-		t->time = 0;
-		t->timestamp = 0;
-	}
 	return &jc->css;
 }
 
