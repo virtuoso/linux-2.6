@@ -50,6 +50,15 @@ static void hists__calc_col_len(struct hists *self, struct hist_entry *h)
 
 	if (h->ms.sym)
 		hists__new_col_len(self, HISTC_SYMBOL, h->ms.sym->namelen);
+	else {
+		const unsigned int unresolved_col_width = BITS_PER_LONG / 4;
+
+		if (hists__col_len(self, HISTC_DSO) < unresolved_col_width &&
+		    !symbol_conf.col_width_list_str && !symbol_conf.field_sep &&
+		    !symbol_conf.dso_list)
+			hists__set_col_len(self, HISTC_DSO,
+					   unresolved_col_width);
+	}
 
 	len = thread__comm_len(h->thread);
 	if (hists__new_col_len(self, HISTC_COMM, len))
@@ -975,8 +984,12 @@ size_t hists__fprintf_nr_events(struct hists *self, FILE *fp)
 	size_t ret = 0;
 
 	for (i = 0; i < PERF_RECORD_HEADER_MAX; ++i) {
-		const char *name = perf_event__name(i);
+		const char *name;
 
+		if (self->stats.nr_events[i] == 0)
+			continue;
+
+		name = perf_event__name(i);
 		if (!strcmp(name, "UNKNOWN"))
 			continue;
 
