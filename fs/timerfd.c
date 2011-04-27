@@ -59,6 +59,16 @@ static ktime_t timerfd_get_remaining(struct timerfd_ctx *ctx)
 	return remaining.tv64 < 0 ? ktime_set(0, 0): remaining;
 }
 
+static void timerfd_canceller(struct hrtimer *timer)
+{
+	struct timerfd_ctx *ctx = container_of(timer, struct timerfd_ctx, tmr);
+	unsigned long flags;
+
+	spin_lock_irqsave(&ctx->wqh.lock, flags);
+	wake_up_locked(&ctx->wqh);
+	spin_unlock_irqrestore(&ctx->wqh.lock, flags);
+}
+
 static void timerfd_setup(struct timerfd_ctx *ctx, int flags,
 			  const struct itimerspec *ktmr)
 {
@@ -99,6 +109,8 @@ static unsigned int timerfd_poll(struct file *file, poll_table *wait)
 	spin_lock_irqsave(&ctx->wqh.lock, flags);
 	if (ctx->ticks)
 		events |= POLLIN;
+	if (ctx->tmr.cancel.cancelled)
+		events |= POLLHUP;
 	spin_unlock_irqrestore(&ctx->wqh.lock, flags);
 
 	return events;
@@ -117,7 +129,15 @@ static ssize_t timerfd_read(struct file *file, char __user *buf, size_t count,
 	if (file->f_flags & O_NONBLOCK)
 		res = -EAGAIN;
 	else
-		res = wait_event_interruptible_locked_irq(ctx->wqh, ctx->ticks);
+		res = wait_event_interruptible_locked_irq(ctx->wqh, ctx->ticks
+						 || ctx->tmr.cancel.cancelled);
+
+	/* if the timer is being cancelled, don't rearm it */
+	if (ctx->tmr.cancel.cancelled) {
+		spin_unlock_irq(&ctx->wqh.lock);
+		return -ECANCELED;
+	}
+
 	if (ctx->ticks) {
 		ticks = ctx->ticks;
 		if (ctx->expired && ctx->tintv.tv64) {
@@ -197,6 +217,7 @@ SYSCALL_DEFINE4(timerfd_settime, int, ufd, int, flags,
 		struct itimerspec __user *, otmr)
 {
 	struct file *file;
+	struct timespec offset;
 	struct timerfd_ctx *ctx;
 	struct itimerspec ktmr, kotmr;
 
@@ -207,6 +228,14 @@ SYSCALL_DEFINE4(timerfd_settime, int, ufd, int, flags,
 	    !timespec_valid(&ktmr.it_value) ||
 	    !timespec_valid(&ktmr.it_interval))
 		return -EINVAL;
+
+	if (flags & TFD_CANCEL_ON_CLOCK_SET) {
+		if (!otmr || !(flags & TFD_TIMER_ABSTIME))
+			return -EINVAL;
+		if (copy_from_user(&kotmr, otmr, sizeof(kotmr)))
+			return -EFAULT;
+		offset = kotmr.it_interval;
+	}
 
 	file = timerfd_fget(ufd);
 	if (IS_ERR(file))
@@ -241,6 +270,15 @@ SYSCALL_DEFINE4(timerfd_settime, int, ufd, int, flags,
 	 * Re-program the timer to the new value ...
 	 */
 	timerfd_setup(ctx, flags, &ktmr);
+
+	if ((flags & TFD_CANCEL_ON_CLOCK_SET) &&
+	    hrtimer_set_cancel_on_clock_set(&ctx->tmr, &offset,
+					    timerfd_canceller)) {
+		hrtimer_cancel(&ctx->tmr);
+		spin_unlock_irq(&ctx->wqh.lock);
+		fput(file);
+		return -ECANCELED;
+	}
 
 	spin_unlock_irq(&ctx->wqh.lock);
 	fput(file);
