@@ -310,5 +310,6 @@ struct itimerval {
  * The various flags for setting POSIX.1b interval timers:
  */
 #define TIMER_ABSTIME			0x01
+#define TIMER_CANCEL_ON_CLOCK_SET	0x02
 
 #endif

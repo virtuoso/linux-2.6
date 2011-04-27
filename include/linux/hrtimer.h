@@ -444,6 +444,7 @@ static inline u64 hrtimer_forward_now(struct hrtimer *timer,
 extern long hrtimer_nanosleep(struct timespec *rqtp,
 			      struct timespec __user *rmtp,
 			      const enum hrtimer_mode mode,
+			      int cancel_on_clock_set,
 			      const clockid_t clockid);
 extern long hrtimer_nanosleep_restart(struct restart_block *restart_block);
 

@@ -1040,6 +1040,7 @@ static int common_nsleep(const clockid_t which_clock, int flags,
 {
 	return hrtimer_nanosleep(tsave, rmtp, flags & TIMER_ABSTIME ?
 				 HRTIMER_MODE_ABS : HRTIMER_MODE_REL,
+				 !!(flags & TIMER_CANCEL_ON_CLOCK_SET),
 				 which_clock);
 }
 

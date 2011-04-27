@@ -199,7 +199,7 @@ asmlinkage long compat_sys_nanosleep(struct compat_timespec __user *rqtp,
 	set_fs(KERNEL_DS);
 	ret = hrtimer_nanosleep(&tu,
 				rmtp ? (struct timespec __user *)&rmt : NULL,
-				HRTIMER_MODE_REL, CLOCK_MONOTONIC);
+				HRTIMER_MODE_REL, 0, CLOCK_MONOTONIC);
 	set_fs(oldfs);
 
 	if (ret) {

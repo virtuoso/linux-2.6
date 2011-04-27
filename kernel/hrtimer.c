@@ -1537,6 +1537,11 @@ static enum hrtimer_restart hrtimer_wakeup(struct hrtimer *timer)
 	return HRTIMER_NORESTART;
 }
 
+static void nanosleeper_cancel(struct hrtimer *timer)
+{
+	hrtimer_wakeup(timer);
+}
+
 void hrtimer_init_sleeper(struct hrtimer_sleeper *sl, struct task_struct *task)
 {
 	sl->timer.function = hrtimer_wakeup;
@@ -1583,6 +1588,20 @@ static int update_rmtp(struct hrtimer *timer, struct timespec __user *rmtp)
 	return 1;
 }
 
+static int nanosleep_set_cancel_on_clock_set(struct hrtimer_sleeper *t,
+			   struct timespec __user *rmtp)
+{
+	struct timespec offset;
+
+	if (!rmtp)
+		return -EINVAL;
+	if (copy_from_user(&offset, rmtp, sizeof(offset)))
+		return -EFAULT;
+
+	return hrtimer_set_cancel_on_clock_set(&t->timer, &offset,
+					       nanosleeper_cancel);
+}
+
 long __sched hrtimer_nanosleep_restart(struct restart_block *restart)
 {
 	struct hrtimer_sleeper t;
@@ -1611,12 +1630,16 @@ out:
 }
 
 long hrtimer_nanosleep(struct timespec *rqtp, struct timespec __user *rmtp,
-		       const enum hrtimer_mode mode, const clockid_t clockid)
+		       const enum hrtimer_mode mode, int cancel_on_clock_set,
+		       const clockid_t clockid)
 {
 	struct restart_block *restart;
 	struct hrtimer_sleeper t;
 	int ret = 0;
 	unsigned long slack;
+
+	if (cancel_on_clock_set && mode != HRTIMER_MODE_ABS)
+		return -EINVAL;
 
 	slack = current->timer_slack_ns;
 	if (rt_task(current))
@@ -1624,6 +1647,13 @@ long hrtimer_nanosleep(struct timespec *rqtp, struct timespec __user *rmtp,
 
 	hrtimer_init_on_stack(&t.timer, clockid, mode);
 	hrtimer_set_expires_range_ns(&t.timer, timespec_to_ktime(*rqtp), slack);
+
+	if (cancel_on_clock_set) {
+		ret = nanosleep_set_cancel_on_clock_set(&t, rmtp);
+		if (ret)
+			goto out;
+	}
+
 	if (do_nanosleep(&t, mode))
 		goto out;
 
@@ -1647,6 +1677,9 @@ long hrtimer_nanosleep(struct timespec *rqtp, struct timespec __user *rmtp,
 
 	ret = -ERESTART_RESTARTBLOCK;
 out:
+	if (t.timer.cancel.cancelled)
+		ret = -ECANCELED;
+
 	destroy_hrtimer_on_stack(&t.timer);
 	return ret;
 }
@@ -1662,7 +1695,8 @@ SYSCALL_DEFINE2(nanosleep, struct timespec __user *, rqtp,
 	if (!timespec_valid(&tu))
 		return -EINVAL;
 
-	return hrtimer_nanosleep(&tu, rmtp, HRTIMER_MODE_REL, CLOCK_MONOTONIC);
+	return hrtimer_nanosleep(&tu, rmtp, HRTIMER_MODE_REL, 0,
+				 CLOCK_MONOTONIC);
 }
 
 /*
