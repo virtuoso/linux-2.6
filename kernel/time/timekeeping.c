@@ -169,6 +169,24 @@ static struct timespec raw_time;
 /* flag for if timekeeping is suspended */
 int __read_mostly timekeeping_suspended;
 
+/*
+ * call a function if offset matches current value of wall_to_monotonic
+ */
+int call_if_monotonic_offset_is(struct timespec *offset,
+				void (*function)(void *), void *data)
+{
+	unsigned long flags;
+	int ret;
+
+	write_seqlock_irqsave(&xtime_lock, flags);
+	ret = timespec_compare(&wall_to_monotonic, offset);
+	if (!ret)
+		function(data);
+	write_sequnlock_irqrestore(&xtime_lock, flags);
+
+	return ret;
+}
+
 /* must hold xtime_lock */
 void timekeeping_leap_insert(int leapsecond)
 {
@@ -379,6 +397,8 @@ int do_settimeofday(const struct timespec *tv)
 
 	write_sequnlock_irqrestore(&xtime_lock, flags);
 
+	hrtimer_clock_was_set();
+
 	/* signal hrtimers about time change */
 	clock_was_set();
 
@@ -415,6 +435,8 @@ int timekeeping_inject_offset(struct timespec *ts)
 				timekeeper.mult);
 
 	write_sequnlock_irqrestore(&xtime_lock, flags);
+
+	hrtimer_clock_was_set();
 
 	/* signal hrtimers about time change */
 	clock_was_set();
@@ -606,6 +628,7 @@ static void timekeeping_resume(void)
 {
 	unsigned long flags;
 	struct timespec ts;
+	int wtm_changed = 0;
 
 	read_persistent_clock(&ts);
 
@@ -617,6 +640,7 @@ static void timekeeping_resume(void)
 		ts = timespec_sub(ts, timekeeping_suspend_time);
 		xtime = timespec_add(xtime, ts);
 		wall_to_monotonic = timespec_sub(wall_to_monotonic, ts);
+		wtm_changed++;
 		total_sleep_time = timespec_add(total_sleep_time, ts);
 	}
 	/* re-base the last cycle value */
@@ -624,6 +648,9 @@ static void timekeeping_resume(void)
 	timekeeper.ntp_error = 0;
 	timekeeping_suspended = 0;
 	write_sequnlock_irqrestore(&xtime_lock, flags);
+
+	if (wtm_changed)
+		hrtimer_clock_was_set();
 
 	touch_softlockup_watchdog();
 

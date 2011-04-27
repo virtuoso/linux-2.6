@@ -649,6 +649,65 @@ static void retrigger_next_event(void *arg)
 }
 
 /*
+ * Every time wall_to_monotonic changes, we cancel all the sleepers
+ * on this list.
+ */
+static LIST_HEAD(cancellation_list);
+static DEFINE_RAW_SPINLOCK(cancellation_lock);
+
+static void cancel_list_add(void *data)
+{
+	struct hrtimer *timer = data;
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&cancellation_lock, flags);
+	list_add(&timer->cancel.list, &cancellation_list);
+	raw_spin_unlock_irqrestore(&cancellation_lock, flags);
+}
+
+/*
+ * Add hrtimer to the list of timers that should be cancelled
+ * on monotonic offset change
+ */
+int hrtimer_set_cancel_on_clock_set(struct hrtimer *timer,
+				    struct timespec *offset,
+				    void (*canceller)(struct hrtimer *))
+{
+	int ret = 0;
+
+	if (call_if_monotonic_offset_is(offset, cancel_list_add, timer))
+		ret = -ECANCELED;
+	else
+		timer->cancel.function = canceller;
+
+	return ret;
+}
+
+/*
+ * Cancel the timers on the cancellation list; call when
+ * wall_to_monotonic has been changed.
+ */
+void hrtimer_clock_was_set(void)
+{
+	struct hrtimer *timer, *iter;
+	unsigned long flags;
+	struct list_head new_head;
+
+	raw_spin_lock_irqsave(&cancellation_lock, flags);
+	list_replace_init(&cancellation_list, &new_head);
+	raw_spin_unlock_irqrestore(&cancellation_lock, flags);
+
+	list_for_each_entry_safe(timer, iter, &new_head, cancel.list) {
+		list_del_init(&timer->cancel.list);
+		hrtimer_cancel(timer);
+		timer->cancel.cancelled = 1;
+
+		BUG_ON(!timer->cancel.function);
+		timer->cancel.function(timer);
+	}
+}
+
+/*
  * Clock realtime was set
  *
  * Change the offset of the realtime clock vs. the monotonic
@@ -876,6 +935,8 @@ static void __remove_hrtimer(struct hrtimer *timer,
 			     struct hrtimer_clock_base *base,
 			     unsigned long newstate, int reprogram)
 {
+	unsigned long flags;
+
 	if (!(timer->state & HRTIMER_STATE_ENQUEUED))
 		goto out;
 
@@ -895,6 +956,11 @@ static void __remove_hrtimer(struct hrtimer *timer,
 	timerqueue_del(&base->active, &timer->node);
 out:
 	timer->state = newstate;
+
+	raw_spin_lock_irqsave(&cancellation_lock, flags);
+	if (!list_empty(&timer->cancel.list))
+		list_del(&timer->cancel.list);
+	raw_spin_unlock_irqrestore(&cancellation_lock, flags);
 }
 
 /*
@@ -1139,6 +1205,8 @@ static void __hrtimer_init(struct hrtimer *timer, clockid_t clock_id,
 	base = hrtimer_clockid_to_base(clock_id);
 	timer->base = &cpu_base->clock_base[base];
 	timerqueue_init(&timer->node);
+
+	INIT_LIST_HEAD(&timer->cancel.list);
 
 #ifdef CONFIG_TIMER_STATS
 	timer->start_site = NULL;

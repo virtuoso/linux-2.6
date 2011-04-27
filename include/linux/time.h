@@ -120,6 +120,9 @@ extern int no_sync_cmos_clock __read_mostly;
 void timekeeping_init(void);
 extern int timekeeping_suspended;
 
+int call_if_monotonic_offset_is(struct timespec *offset,
+				void (*function)(void *), void *data);
+
 unsigned long get_seconds(void);
 struct timespec current_kernel_time(void);
 struct timespec __current_kernel_time(void); /* does not take xtime_lock */

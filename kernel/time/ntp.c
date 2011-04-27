@@ -357,6 +357,7 @@ void ntp_clear(void)
 static enum hrtimer_restart ntp_leap_second(struct hrtimer *timer)
 {
 	enum hrtimer_restart res = HRTIMER_NORESTART;
+	int wtm_changed = 0;
 
 	write_seqlock(&xtime_lock);
 
@@ -365,6 +366,7 @@ static enum hrtimer_restart ntp_leap_second(struct hrtimer *timer)
 		break;
 	case TIME_INS:
 		timekeeping_leap_insert(-1);
+		wtm_changed++;
 		time_state = TIME_OOP;
 		printk(KERN_NOTICE
 			"Clock: inserting leap second 23:59:60 UTC\n");
@@ -373,6 +375,7 @@ static enum hrtimer_restart ntp_leap_second(struct hrtimer *timer)
 		break;
 	case TIME_DEL:
 		timekeeping_leap_insert(1);
+		wtm_changed++;
 		time_tai--;
 		time_state = TIME_WAIT;
 		printk(KERN_NOTICE
@@ -389,6 +392,9 @@ static enum hrtimer_restart ntp_leap_second(struct hrtimer *timer)
 	}
 
 	write_sequnlock(&xtime_lock);
+
+	if (wtm_changed)
+		hrtimer_clock_was_set();
 
 	return res;
 }

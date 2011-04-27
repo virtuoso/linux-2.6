@@ -46,6 +46,19 @@ enum hrtimer_restart {
 	HRTIMER_RESTART,	/* Timer must be restarted */
 };
 
+/**
+ * struct hrtimer_cancel_block - timer cancellation control structure
+ * @list:	link to the list of timers to be cancelled when a certain
+ *		event is triggered.
+ * @function:	cancellation callback
+ * @cancelled:	flag to indicate that the timer has been cancelled
+ */
+struct hrtimer_cancel_block {
+	struct list_head	list;
+	void			(*function)(struct hrtimer *);
+	unsigned int		cancelled:1;
+};
+
 /*
  * Values to track state of the timer
  *
@@ -96,6 +109,7 @@ enum hrtimer_restart {
  * @function:	timer expiry callback function
  * @base:	pointer to the timer base (per cpu and per clock)
  * @state:	state information (See bit values above)
+ * @cancel:	cancellation-related fields
  * @start_site:	timer statistics field to store the site where the timer
  *		was started
  * @start_comm: timer statistics field to store the name of the process which
@@ -111,6 +125,7 @@ struct hrtimer {
 	enum hrtimer_restart		(*function)(struct hrtimer *);
 	struct hrtimer_clock_base	*base;
 	unsigned long			state;
+	struct hrtimer_cancel_block	cancel;
 #ifdef CONFIG_TIMER_STATS
 	int				start_pid;
 	void				*start_site;
@@ -260,6 +275,8 @@ extern void clock_was_set(void);
 extern void hres_timers_resume(void);
 extern void hrtimer_interrupt(struct clock_event_device *dev);
 
+extern void hrtimer_clock_was_set(void);
+
 /*
  * In high resolution mode the time reference must be read accurate
  */
@@ -301,6 +318,7 @@ static inline void hrtimer_peek_ahead_timers(void) { }
 
 static inline void hres_timers_resume(void) { }
 
+static inline void hrtimer_clock_was_set(void) { }
 /*
  * In non high resolution mode the time reference is taken from
  * the base softirq time variable.
@@ -329,6 +347,10 @@ DECLARE_PER_CPU(struct tick_device, tick_cpu_device);
 /* Initialize timers: */
 extern void hrtimer_init(struct hrtimer *timer, clockid_t which_clock,
 			 enum hrtimer_mode mode);
+
+extern int hrtimer_set_cancel_on_clock_set(struct hrtimer *timer,
+					   struct timespec *offset,
+					   void (*function)(struct hrtimer *));
 
 #ifdef CONFIG_DEBUG_OBJECTS_TIMERS
 extern void hrtimer_init_on_stack(struct hrtimer *timer, clockid_t which_clock,
