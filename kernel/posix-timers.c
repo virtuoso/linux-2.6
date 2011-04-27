@@ -1019,6 +1019,20 @@ SYSCALL_DEFINE2(clock_getres, const clockid_t, which_clock,
 }
 
 /*
+ * Retrieve CLOCK_REALTIME's offset against CLOCK_MONOTONIC
+ */
+SYSCALL_DEFINE1(clock_rtoffset, struct timespec __user, *offset)
+{
+	struct timespec time, mono, sleep;
+	int ret;
+
+	get_xtime_and_monotonic_and_sleep_offset(&time, &mono, &sleep);
+	ret = copy_to_user(offset, &mono, sizeof(mono));
+
+	return ret ? -EFAULT : 0;
+}
+
+/*
  * nanosleep for monotonic and realtime clocks
  */
 static int common_nsleep(const clockid_t which_clock, int flags,
